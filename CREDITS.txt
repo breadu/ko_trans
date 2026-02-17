@@ -1,0 +1,57 @@
+================================================================================
+                                KO Trans v1.0
+                         Developed by Breadu Soft
+================================================================================
+
+KO Trans is an open-source OCR and translation tool designed for real-time
+language assistance. This software incorporates several third-party
+open-source libraries and models. We acknowledge and thank the original
+authors for their contributions to the AI and development community.
+
+--------------------------------------------------------------------------------
+1. Main OCR Engine: PaddleOCR
+--------------------------------------------------------------------------------
+* Project: https://github.com/PaddlePaddle/PaddleOCR
+* License: Apache License 2.0
+* Copyright (c) 2020 PaddlePaddle Authors.
+* Description: Provides high-performance OCR capabilities based on the
+  PaddlePaddle deep learning framework.
+
+--------------------------------------------------------------------------------
+2. Text Detection Model: CRAFT (Character Region Awareness for Text Detection)
+--------------------------------------------------------------------------------
+* Project: https://github.com/clovaai/CRAFT-pytorch
+* License: MIT License
+* Copyright (c) 2019-present NAVER Corp.
+* Authors: Youngmin Baek, Bado Lee, Dongyoon Han, Sangdoo Yun, Hwalsuk Lee.
+* Description: Used for precise localization of text regions within images.
+
+--------------------------------------------------------------------------------
+3. Frameworks and Libraries
+--------------------------------------------------------------------------------
+* AutoHotkey v2: GNU General Public License (GPL) v2.0.
+  (https://www.autohotkey.com/)
+
+* PySide6 (Qt for Python): GNU Lesser General Public License (LGPL) v3.0.
+  (https://www.qt.io/qt-for-python)
+
+* Flask: BSD 3-Clause License.
+  (https://flask.palletsprojects.com/)
+
+* GDI+ Library for AutoHotkey: Originally by Tic (Tariq Porter).
+  Licensed under Creative Commons Attribution-ShareAlike 3.0 Unported.
+
+* OpenCV (Open Source Computer Vision Library): Apache License 2.0.
+  (https://opencv.org/)
+
+--------------------------------------------------------------------------------
+4. Special Thanks
+--------------------------------------------------------------------------------
+* To the developers of Google Gemini, OpenAI ChatGPT, and Ollama for providing
+  the AI translation backends that power this application.
+
+================================================================================
+This software is provided "AS IS", without warranty of any kind, express or
+implied. In no event shall the authors be liable for any claim, damages or
+other liability.
+================================================================================
