@@ -15,40 +15,48 @@ authors for their contributions to the AI and development community.
 * License: Apache License 2.0
 * Copyright (c) 2020 PaddlePaddle Authors.
 * Description: Provides high-performance OCR capabilities based on the
-  PaddlePaddle deep learning framework.
+    PaddlePaddle deep learning framework.
 
 --------------------------------------------------------------------------------
-2. Text Detection Model: CRAFT (Character Region Awareness for Text Detection)
+2. Text Detection Model: CRAFT
 --------------------------------------------------------------------------------
 * Project: https://github.com/clovaai/CRAFT-pytorch
+* Inference: ONNX Runtime (onnxruntime-gpu/cpu)
 * License: MIT License
 * Copyright (c) 2019-present NAVER Corp.
 * Authors: Youngmin Baek, Bado Lee, Dongyoon Han, Sangdoo Yun, Hwalsuk Lee.
-* Description: Used for precise localization of text regions within images.
+* Description: Used for precise localization of text regions within images
+    via ONNX optimized inference.
 
 --------------------------------------------------------------------------------
 3. Frameworks and Libraries
 --------------------------------------------------------------------------------
 * AutoHotkey v2: GNU General Public License (GPL) v2.0.
-  (https://www.autohotkey.com/)
+    (https://www.autohotkey.com/)
 
 * PySide6 (Qt for Python): GNU Lesser General Public License (LGPL) v3.0.
-  (https://www.qt.io/qt-for-python)
+    (https://www.qt.io/qt-for-python)
 
-* Flask: BSD 3-Clause License.
-  (https://flask.palletsprojects.com/)
+* FastAPI & Uvicorn: High-performance web framework and ASGI server. MIT License.
+    (https://fastapi.tiangolo.com/)
+
+* fugashi: MeCab wrapper for Japanese morphological analysis (Yomigana).
+    MIT License. (https://github.com/polm/fugashi)
+
+* scikit-learn: Used for DBSCAN spatial clustering in NVL mode. BSD License.
+    (https://scikit-learn.org/)
+
+* OpenCV: Open Source Computer Vision Library. Apache License 2.0.
+    (https://opencv.org/)
 
 * GDI+ Library for AutoHotkey: Originally by Tic (Tariq Porter).
-  Licensed under Creative Commons Attribution-ShareAlike 3.0 Unported.
-
-* OpenCV (Open Source Computer Vision Library): Apache License 2.0.
-  (https://opencv.org/)
+    Licensed under Creative Commons Attribution-ShareAlike 3.0 Unported.
 
 --------------------------------------------------------------------------------
 4. Special Thanks
 --------------------------------------------------------------------------------
 * To the developers of Google Gemini, OpenAI ChatGPT, and Ollama for providing
-  the AI translation backends that power this application.
+    the AI translation backends that power this application.
 
 ================================================================================
 This software is provided "AS IS", without warranty of any kind, express or

@@ -17,7 +17,7 @@ PaddlePaddle 라이브러리와의 최적의 호환성을 위해 **CUDA 12.9** �
 ### 2. cuDNN 라이브러리 설정 (v9.x)
 CUDA 연산을 보조하는 cuDNN 라이브러리를 추가해야 합니다.
 * **다운로드**: [cuDNN Downloads](https://developer.nvidia.com/cudnn-downloads) (v9.x for CUDA 12 선택)
-* **설정 방법**: 
+* **설정 방법**:
     1. 설치 후 `C:\Program Files\NVIDIA\CUDNN\v9.19` 경로로 이동합니다.
     2. `bin\12.9\x64`, `include\12.9`, `lib\12.9\x64` 폴더 안의 모든 파일을 복사합니다.
     3. CUDA 설치 경로(보통 `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9`)의 `bin`, `include`, `lib\x64` 폴더에 각각 **덮어씌우기(붙여넣기)** 합니다.
@@ -99,6 +99,7 @@ PaddleOCR은 현재 Python 3.14 버전을 지원하지 않으므로, 반드시 *
     "info": "본편의 히로인. 토오루와 같은 대학에 다니는 긴 검은 머리의 미인이다."
   }
 ]
+```
 
 ---
 
