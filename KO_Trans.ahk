@@ -135,8 +135,12 @@ WriteToSharedMemory(pBitmap) {
         }
     }
 
+    if (pBitmap <= 0) {
+        LogDebug("[Error] WriteToSharedMemory: Invalid Bitmap handle.")
+        return 0
+    }
+
     Gdip_GetImageDimensions(pBitmap, &w, &h)
-    LogDebug("WriteToSharedMemory() 📸 Image: w=" . w . ", h=" . h)
 
     ; Lock bits for reading raw pixel data. Gdip_LockBits returns 0 on success.
     if !Gdip_LockBits(pBitmap, 0, 0, w, h, &Stride, &Scan0, &BitmapData) {
@@ -158,7 +162,7 @@ WriteToSharedMemory(pBitmap) {
         Gdip_UnlockBits(pBitmap, &BitmapData)
     }
 
-    LogDebug("WriteToSharedMemory() ❌ Gdip_LockBits failed (Status: " . Gdip_LockBits(pBitmap, 0, 0, w, h, &Stride, &Scan0, &BitmapData) . ")")
+    LogDebug("WriteToSharedMemory() ❌ Gdip_LockBits failed")
     return 0
 }
 
@@ -245,7 +249,7 @@ LoadProfileSettings(forceProc := "") {
     targetProc := (forceProc != "") ? forceProc : CURRENT_PROFILE
 
     CURRENT_PROFILE := targetProc
-    LogDebug("[Profile] LoadProfileSettings() targetProc=" targetProc)
+    LogDebug("[Profile] Loading Profile: " . targetProc)
 
     ; Load OCR coordinates
     OCR_X := IniRead(INI_FILE, targetProc, INI_OCR_X, IniRead(INI_FILE, PROFILE_SETTINGS, INI_OCR_X, DEFAULT_OCR_X))
@@ -324,12 +328,9 @@ CheckServerStatusForSplash() {
             BigToolTip("✅ KO Trans 시작!", 2000)
             LogDebug("KO Trans Server is now online. (Attempts: " . retryCount . ")")
             return
-        } else {
-            ; Log a wait message even if status is not 200 (e.g., 404, 503)
-            LogDebug("[System] Although server port is open, wating be ready... Status: " . http.Status)
         }
     } catch {
-        LogDebug("[System] Waiting for OCR server to start... (" . retryCount . "/60)")
+        ; Silence retry noise
     }
 
     if (retryCount > 60) {
@@ -364,7 +365,7 @@ CheckServerStatus() {
             if RegExMatch(http.ResponseText, '"device"\s*:\s*"([^"]+)"', &match)
                 ENGINE_DEVICE_MODE := match[1]
 
-            LogDebug("[System] Server Online. URL: " . checkUrl . " | Device: " . ENGINE_DEVICE_MODE)
+            LogDebug("[System] Server Online. Device: " . ENGINE_DEVICE_MODE)
 
             return true
         } else {
@@ -372,7 +373,6 @@ CheckServerStatus() {
         }
     } catch {
         LogDebug("[System] Server Offline. Tried URL: " . checkUrl)
-
         return false
     }
 
@@ -439,7 +439,7 @@ ProcessPotPlayerResponse(wParam, lParam, msg, hwnd) {
 
     if (targetIdx > 0) {
         finalText := subs[targetIdx].text
-        LogDebug("[PotPlayer] Found subtitle index: " . targetIdx . " | Text: " . SubStr(finalText, 1, 40) . "...")
+        LogDebug("[PotPlayer] Found subtitle index: " . targetIdx)
 
         ; Intelligent Merging: Combine multi-line sentences spanning across SRT blocks
         tempIdx := targetIdx
@@ -535,7 +535,7 @@ LookupDictionary() {
             LogDebug("[OCR] Word Trigger Success. Result: " . SubStr(resultText, 1, 40))
             SendToAIWordOverlay(resultText)
         } else {
-            LogDebug("[OCR] Word Trigger failed or no text found. Server response: " . resultText)
+            LogDebug("[OCR] Word Trigger failed or no text found.")
             BigToolTip("OCR 실패")
         }
     }
@@ -711,7 +711,6 @@ CapturePhysicalScreen(x, y, w, h, hwnd := 0, forceFresh := false) {
             } finally {
                 Gdip_DisposeImage(pFullBitmap)
             }
-
         }
     }
 
@@ -1028,7 +1027,6 @@ TriggerOCRForTranslate() {
                     res := StrSplit(http_detect.ResponseText, ",")
                     currCount := (res.Length >= 1) ? Integer(res[1]) : 0
                     currArea  := (res.Length >= 2) ? Integer(res[2]) : 0
-                    currAvgH  := (res.Length >= 3) ? Integer(res[3]) : 0
                 } catch {
                     LogDebug("[Stability] ❌ Server connection lost during stability check.")
                     throw Error("Server Offline")
@@ -1040,8 +1038,6 @@ TriggerOCRForTranslate() {
                     Sleep(checkInterval)
                     continue
                 }
-
-                LogDebug("[Stability] Match Found. Count: " . stableCount . "/" . requiredStableCount . " | TypicalH: " . currAvgH)
 
                 ; Reset stability if rapid area changes occur (30%+ change indicates transition or noise)
                 areaChange := (prevArea > 0) ? (Abs(currArea - prevArea) / prevArea) * 100 : 0
@@ -1058,13 +1054,13 @@ TriggerOCRForTranslate() {
                 prevArea := currArea
 
                 if (stableCount >= requiredStableCount) {
-                    LogDebug("[Stability] Screen Stable. Proceeding to OCR.")
+                    LogDebug("[Stability] Screen Stable. Proceeding.")
                     break
                 }
                 Sleep(checkInterval)
             }
 
-            ; --- Step 2: Capture and OCR Request (with Retry Logic) ---
+            ; --- Step 3: Capture and OCR Request (with Retry Logic) ---
             Loop 2 {
                  pBitmap := CapturePhysicalScreen(OCR_X, OCR_Y, OCR_W, OCR_H, hwndTarget, (A_Index == 2))
                 if (pBitmap <= 0) {
@@ -1094,11 +1090,9 @@ TriggerOCRForTranslate() {
 
                     LogDebug("[OCR] Request Sent. Target: " . (CAPTURE_TARGET == 0 ? "Screen" : "Process: " . CAPTURE_PROCESS))
                     ocrResult := http.ResponseText
-                    LogDebug("[OCR] Raw Server Result: [" . ocrResult . "]")
-
                     ocrResult := Trim(ocrResult)
 
-                    ; OCR Test Mode Logi
+                    ; OCR Test Mode Logic
                     if (TEST_MODE) {
                         clipText := Trim(A_Clipboard)
                         if (clipText != "" && ocrResult != "" && RegExMatch(clipText, "[^\s\p{P}\p{S}]")) {
@@ -1165,29 +1159,25 @@ TriggerOCRForTranslate() {
             else {
                 trans_similarity := GetSimilarity(ocrResult, Overlay.LastOcr)
                 if (trans_similarity > 0.85) {
-                    LogDebug("[OCR] Duplicate detected. breaking loop... trans_similarity=" . trans_similarity)
                     break
                 } else {
                     Overlay.LastOcr := ocrResult
                     LogDebug("[OCR] New text detected: " . SubStr(ocrResult, 1, 40) . "...")
 
-                    ; Prioritize text cleaning (to prevent original bracket corruption)
+                    ; Prioritize text cleaning
                     cleanedOriginal := CleanTextForOverlay(ocrResult, READ_MODE)
                     displayOriginal := cleanedOriginal
 
-                    ; Immediately acquire and display Yomigana (do not wait for translation)
+                    ; Immediately acquire and display Yomigana
                     if (SHOW_OCR == "1" && Overlay.IsActive) {
                         if (JAP_YOMIGANA == "1" && OCR_LANG == "jap") {
-                            ; Pass the cleaned text to the Yomigana engine
                             displayOriginal := GetFurigana(cleanedOriginal)
                         }
                         Overlay.Text.Value := displayOriginal
                         try WinRedraw("ahk_id " Overlay.Gui.Hwnd)
                     }
 
-                    LogDebug("ocrResult=" . ocrResult)
                     translatedText := Translate(ocrResult, CURRENT_PROFILE)
-                    LogDebug("translatedText=" . translatedText)
 
                     if (Overlay.IsActive && Overlay.HasProp("Gui") && WinExist("ahk_id " Overlay.Gui.Hwnd)) {
                         if (SHOW_OCR == "1") {
@@ -1207,8 +1197,8 @@ TriggerOCRForTranslate() {
             if (!Overlay.PendingRequest || !Overlay.IsActive) {
                 break
             }
-            LogDebug("[System] Re-looping due to PendingRequest. Waiting for game to catch up...")
-            Sleep(600) ; Wait 0.6s before re-looping to avoid rapid duplicate detection
+            LogDebug("[System] Re-looping due to PendingRequest.")
+            Sleep(600)
         }
     } catch Error as e {
         if (e.Message == "Server Offline") {
@@ -1237,14 +1227,12 @@ GetSimilarity(s1, s2) {
     if (s1 == s2) {
         return 1.0
     }
-    ; Standardize various double quote variants (curly, full-width) to a standard ASCII quote (")
     s1 := RegExReplace(s1, "[\s\t\r\n　]+", ""), s2 := RegExReplace(s2, "[\s\t\r\n　]+", "")
     l1 := StrLen(s1), l2 := StrLen(s2)
     if (l1 == 0 || l2 == 0) {
         return 0.0
     }
 
-    ; Initialize matrix for edit distance calculation
     v0 := []
     Loop l2 + 1
         v0.Push(A_Index - 1)
@@ -1272,7 +1260,6 @@ GetSimilarity(s1, s2) {
     ; If the length difference is more than 5 characters, it's likely a new sentence in NVL mode.
     if (Abs(l1 - l2) >= 5) {
         similarity -= 0.2
-        ; LogDebug("[Similarity] Length difference detected. Applying penalty. New similarity: " . similarity)
     }
 
     return Max(0.0, similarity)
@@ -1283,17 +1270,13 @@ CleanTextForOverlay(txt, readMode := "ADV") {
     if (txt == "")
         return ""
 
+    original := txt
     txt := Trim(txt, "`n`r `t")
-    LogDebug("[CleanText] Input: " . txt)
 
-    ; Standardize various double quote variants (curly, full-width) to a standard ASCII quote (")
+    ; Standardize various double quote variants
     txt := RegExReplace(txt, "[“”＂]", '"')
-
-    ; Normalize spaces and tabs
     txt := RegExReplace(txt, "[\r\n\t]+", " ")
     txt := RegExReplace(txt, "\s{2,}", " ")
-
-    ; Remove common game cursor symbols
     txt := RegExReplace(txt, "[▼▽▶▷]", "")
 
     ; Auto-close/open missing quotes and brackets
@@ -1304,8 +1287,6 @@ CleanTextForOverlay(txt, readMode := "ADV") {
         else if (RegExMatch(txt, '^"') && !RegExMatch(txt, '"$'))
             txt := txt . '"'
     }
-
-    LogDebug("[CleanText] After Quote/Bracket Fix: " . txt)
 
     openB := StrSplit(txt, '「').Length - 1
     closeB := StrSplit(txt, '」').Length - 1
@@ -1320,7 +1301,6 @@ CleanTextForOverlay(txt, readMode := "ADV") {
     else if (closeDB > openDB)
         txt := "『" . txt
 
-    ; Handle double angle quotation marks « »
     openAB := StrSplit(txt, '«').Length - 1
     closeAB := StrSplit(txt, '»').Length - 1
     if (openAB > closeAB)
@@ -1328,40 +1308,22 @@ CleanTextForOverlay(txt, readMode := "ADV") {
     else if (closeAB > openAB)
         txt := "«" . txt
 
-    ; ---------------------------------------------------------
-    ; Mode-specific Regular Expression blocks
-    ; ---------------------------------------------------------
     bracketPattern := "(?:\[[^\]]*\]|[\(\（][^\)\）]*[\)\）]|『[^』]*』|「[^」]*」|«[^»]*»|\x22[^\x22]*\x22|\x27[^\x27]*\x27)"
 
     if (readMode == "NVL") {
-        ; Remove unnecessary whitespace after name tags (to output as A: "...")
         txt := RegExReplace(txt, "(:|：|\]|」|』|»)\s+(?=[\x22『「\[«])", "$1 ")
-
-        ; Add a line break only before a new 'name tag' appearing in the middle of a sentence
         txt := RegExReplace(txt, bracketPattern . "(*SKIP)(*F)|(\s+)(?=[^:：\s`n]{1,10}(?:[:：]|\[[^\]]+\]|「[^」]+」|『[^』]+』))", "`n")
-
-        ; Add a line break if there is a space after quotes/brackets (split between dialogues and dialogue-narrative)
         txt := RegExReplace(txt, "(" . bracketPattern . ")\s+(?!`n|$)", "$1`n")
-
-        ; Add a line break if there is a space after punctuation (split between narratives, protect bracket contents)
         txt := RegExReplace(txt, bracketPattern . "(*SKIP)(*F)|(?<!^)([?.!？！。])\s+(?!`n|$)", "$1`n")
     } else {
-        ; Merge whitespace/newlines before opening brackets into a single space to maintain connection
         txt := RegExReplace(txt, "(?<=[^ \x22』」»\.!\?？！])\s+([\x22『「«])", " $1")
-
-        ; ADV Mode line break logic (added sentence end protection)
         txt := RegExReplace(txt, "^([^:：`n]{20,}(?:[:：]|\[[^\]]+\]))\s+(?!$)", "$1`n")
         txt := RegExReplace(txt, "([^`n]{20,}(?:[』」\]»]|\x22(?=\s)))\s*([\x22『「«])(?!$)", "$1`n$2")
         txt := RegExReplace(txt, "(?m)^([ \x22『「«][^`n]{20,}?[\x22』」»])\s+(?=[^ \x22『「«\.!\?？！])(?!$)", "$1`n")
     }
 
-    ; Punctuation marker processing (SKIP inside brackets, never touch sentence ends (?!$))
     markedTxt := RegExReplace(txt, bracketPattern . "(*SKIP)(*F)|([.?!。？！]+)\s+(?!$)|([…]+)\s+(?!$)", "$1$2<BR>")
-
-    ; Marker processing after closing brackets (sentence end protection)
     markedTxt := RegExReplace(markedTxt, "([』」\x22])\s+(?!$|<BR>|`n)", "$1<BR>")
-
-    LogDebug("[CleanText] Marked: " . markedTxt)
 
     finalTxt := ""
     currentLine := ""
@@ -1374,28 +1336,23 @@ CleanTextForOverlay(txt, readMode := "ADV") {
         if (currentLine == "") {
             currentLine := segment
         }
-        ; Decide whether to merge lines based on mode
         else if (readMode == "ADV" && StrLen(currentLine) < 20) {
-            ; Merge short segments for ADV style
             currentLine .= segment
         } else {
-            ; Always create a new line for each segment in NVL mode
             finalTxt .= currentLine . "`n"
             currentLine := segment
         }
     }
     txt := finalTxt . currentLine
-
-    ; Heal orphaned quotes
     txt := RegExReplace(txt, "`n\s*(\x22)\s*`n", "`n$1")
-
-    ; Final cleanup of excessive newlines and leading spaces
     txt := RegExReplace(txt, "\n+", "`n")
     txt := RegExReplace(txt, "(?m)^ +", "")
     txt := RegExReplace(txt, " {2,}", " ")
     txt := Trim(txt, "`n`r `t")
 
-    LogDebug("[CleanText] Final: " . txt)
+    if (original != txt) {
+        LogDebug("[CleanText] Final: " . txt)
+    }
 
     return txt
 }
@@ -1454,7 +1411,7 @@ WatchArea() {
         Gdip_UnlockBits(currentBitmap, &Bdata1)
     }
 
-    ; Confirm change if persistent across 2 polling cycles (filters out flickering/cursor blinking)
+    ; Confirm change if persistent across 2 polling cycles
     if (mismatchCount > 10) {
         StableChangeCount++
 
@@ -1491,13 +1448,11 @@ GetAreaHash(x, y, w, h, hwnd := 0) {
             stepX := Integer((width / 41) * A_Index)
             Loop 20 {
                 stepY := Integer((height / 21) * A_Index)
-
                 pix := NumGet(Scan0, (stepY * Stride) + (stepX * 4), "UInt")
 
                 ; Apply "Fuzzy Hashing" by masking out lower 5 bits of each RGB channel
                 ; This ignores micro-noise and dithering for a more stable hash value
                 stablePix := pix & 0xE0E0E0
-
                 hash += stablePix
             }
         }
@@ -1515,9 +1470,8 @@ Translate(inputText, profileName := PROFILE_SETTINGS) {
     currentEngine := IniRead(INI_FILE, profileName, "ENGINE", DEFAULT_ENGINE)
     targetModel := (currentEngine = ENGINE_GEMINI) ? GEMINI_MODEL : (currentEngine = ENGINE_OPENAI) ? GPT_MODEL : LOCAL_MODEL
 
-    LogDebug("[Translate] Engine: " . currentEngine . " | Model: " . targetModel . " | Input Text: " . SubStr(inputText, 1, 40) . "...")
+    LogDebug("[Translate] Engine: " . currentEngine . " | Model: " . targetModel . " | Input: " . SubStr(inputText, 1, 40) . "...")
 
-    ; Escape characters to ensure valid JSON payload
     safeText := inputText
     safeText := StrReplace(safeText, "\", "\\")
     safeText := StrReplace(safeText, '"', '\"')
@@ -1528,18 +1482,16 @@ Translate(inputText, profileName := PROFILE_SETTINGS) {
     jsonPayload := '{"text": "' . safeText . '", "profile": "' . profileName . '", "model": "' . targetModel . '"}'
 
     try {
-        ; Use WinHttp for stable requests to prevent heap corruption in long-running sessions
         whr := ComObject("WinHttp.WinHttpRequest.5.1")
         whr.Open("POST", CHATGPT_ENDPOINT, false)
         whr.SetRequestHeader("Content-Type", "application/json; charset=utf-8")
         whr.Send(jsonPayload)
 
         if (whr.Status != 200) {
-            LogDebug("[Error] Translation failed. Status: " . whr.Status . " Response: " . whr.ResponseText)
+            LogDebug("[Error] Translation failed. Status: " . whr.Status)
             return "서버 오류: " . whr.Status
         }
 
-        ; WinHttp handles Unicode internally, ensuring safe Korean character retrieval
         response := whr.ResponseText
         whr := ""
 
@@ -1567,7 +1519,7 @@ UpdateTriggerHotkeys() {
     try SetTimer(WatchPadButton, 0)
 
     if (!Overlay.IsActive) {
-        LogDebug("[System] Overlay inactive. All triggers cleared.")
+        LogDebug("[System] Overlay inactive. Triggers cleared.")
         OnClipboardChange(OnClipboardChangeHandler, 0)
         return
     }
@@ -1593,7 +1545,7 @@ UpdateTriggerHotkeys() {
 
         if (PAD_TRIGGER != "" && PAD_TRIGGER != "NONE" && PAD_TRIGGER != "없음") {
             SetTimer(WatchPadButton, 50)
-            LogDebug("[Trigger] Pad Monitoring Timer active: " . PAD_TRIGGER)
+            LogDebug("[Trigger] Pad Monitoring active: " . PAD_TRIGGER)
         }
     } else {
         LogDebug("[System] Auto-Detection active. Manual triggers disabled.")
@@ -1615,19 +1567,15 @@ WatchPadButton() {
     currentState := 0
     foundUserIndex := -1
 
-    ; Iterate through all 4 XInput slots
     Loop 4 {
         uIdx := A_Index - 1
         status := -1
         try {
-            ; Try both XInput 1.4 (Windows 10/11 Default)
             status := DllCall("XInput1_4\XInputGetState", "uint", uIdx, "ptr", xiState)
         } catch {
             try {
-                ; Try XInput 1.3 (Legacy DirectX)
                 status := DllCall("XInput1_3\XInputGetState", "uint", uIdx, "ptr", xiState)
             } catch {
-                ; There is no DLL
                 if (!hasWarnedDirectX) {
                     MsgBox("🎮 게임패드 지원을 위한 DirectX 구성 요소가 없습니다.`n`n"
                          . "패드 트리거를 사용하려면 'DirectX 최종 사용자 런타임' 설치가 필요합니다.`n"
@@ -1657,7 +1605,6 @@ WatchPadButton() {
         }
     }
 
-    ; Trigger only on initial press (Edge Detection)
     if (currentState && !Overlay.PadLastState) {
         LogDebug("[Trigger] XInput Success! User: " . foundUserIndex . ", Button: " . PAD_TRIGGER)
         NextPageTriggerHandler(PAD_TRIGGER)
@@ -1670,7 +1617,6 @@ NextPageTriggerHandler(hk) {
     if (!Overlay.IsActive)
         return
 
-    ; Warn user if they trigger while the overlay window has focus
     if (AUTO_DETECT_ENABLED == "0" && Overlay.HasProp("Gui") && WinActive("ahk_id " Overlay.Gui.Hwnd)) {
         Overlay.Text.Value := "⚠️ 오버레이 창이 선택되어 있습니다!`n번역하려는 게임 창을 클릭하여 활성화해주세요! 🥊"
         LogDebug("[Trigger] Manual trigger ignored - Overlay has focus.")
@@ -1683,7 +1629,6 @@ NextPageTriggerHandler(hk) {
         return
     }
 
-    ; Ignore clicks originating directly from clicking the overlay buttons
     if InStr(hk, "Button") {
         MouseGetPos(,, &hoverHwnd)
         if (IsSet(Overlay) && Overlay.HasProp("Gui") && hoverHwnd == Overlay.Gui.Hwnd)
@@ -1716,18 +1661,14 @@ SendToAIWordOverlay(text) {
 
     BigToolTip("🔍 AI 단어 분석을 시작합니다...", 2000)
 
-    LogDebug("[Critical] SendToAIWordOverlay executed. Text Length: " . StrLen(text))
-
     currentEngine := IniRead(INI_FILE, CURRENT_PROFILE, "ENGINE", IniRead(INI_FILE, PROFILE_SETTINGS, "ENGINE", DEFAULT_ENGINE))
     targetModel := (currentEngine == "Gemini") ? GEMINI_MODEL : (currentEngine == "ChatGPT") ? GPT_MODEL : LOCAL_MODEL
 
     static targetTitle := "🥊 KO Trans"
     DetectHiddenWindows(true)
 
-    ; Start new Python client if not running
     if !WinExist(targetTitle) {
         safeText := StrReplace(text, '"', '\"')
-
         pythonPath := A_ScriptDir "\engine\venv\Scripts\pythonw.exe"
         clientPath := A_ScriptDir "\engine\overlay_client.py"
         LogDebug("[System] Starting Python client overlay...")
@@ -1745,7 +1686,6 @@ SendToAIWordOverlay(text) {
         return
     }
 
-    ; Send data to existing client using WM_COPYDATA
     combinedData := text . "|" . currentEngine . "|" . targetModel
 
     ptrText := Buffer(StrLen(combinedData) * 2 + 2)
@@ -1760,7 +1700,7 @@ SendToAIWordOverlay(text) {
         SendMessage(0x004A, A_ScriptHwnd, cds.Ptr, , targetTitle, , , , 500)
         LogDebug("[System] Sent text to existing Python client.")
     } catch {
-        LogDebug("[Error] Failed to send WM_COPYDATA to Python client.")
+        LogDebug("[Error] Failed to send WM_COPYDATA.")
         BigToolTip("시스템이 바쁩니다 - 잠시 후 다시 시도해 주세요")
     }
 }
@@ -1772,7 +1712,6 @@ UpdateOverlayToActiveProfile(forceProc := "", doReload := true) {
     LoadProfileSettings(forceProc)
     IniWrite(CURRENT_PROFILE, INI_FILE, PROFILE_SETTINGS, "ACTIVE_PROFILE")
 
-    ; Trigger server reload if settings changed (e.g., language switch)
     if (doReload) {
         try {
             BigToolTip("🔄 OCR 엔진 최적화 중...", 30000)
@@ -1787,7 +1726,6 @@ UpdateOverlayToActiveProfile(forceProc := "", doReload := true) {
                 Sleep(100)
             }
 
-            ; Close tooltip if server response
             BigToolTip("")
 
             if RegExMatch(http.ResponseText, '"device"\s*:\s*"([^"]+)"', &match)
@@ -1796,7 +1734,7 @@ UpdateOverlayToActiveProfile(forceProc := "", doReload := true) {
             LogDebug("[Reload] OCR Engine Reload Success. Device: " . ENGINE_DEVICE_MODE)
         } catch {
             BigToolTip("")
-            LogDebug("[Error] OCR Engine Reload Failed. Server unreachable.")
+            LogDebug("[Error] OCR Engine Reload Failed.")
         }
     }
 
@@ -1804,12 +1742,9 @@ UpdateOverlayToActiveProfile(forceProc := "", doReload := true) {
         WinSetTransparent(OVERLAY_OPACITY, Overlay.Gui)
         Overlay.Gui.SetFont("s" OVERLAY_FONT_SIZE " c" OVERLAY_FONT_COLOR, "Segoe UI")
         Overlay.Text.SetFont("s" OVERLAY_FONT_SIZE " c" OVERLAY_FONT_COLOR)
-
         Overlay.Gui.Move(Overlay.X, Overlay.Y, Overlay.W, Overlay.H)
-
         WinRedraw("ahk_id " Overlay.Gui.Hwnd)
         UpdateTriggerHotkeys()
-
         LogDebug("[System] Overlay updated for profile: " CURRENT_PROFILE)
     }
 }
@@ -1858,10 +1793,9 @@ OnClipboardChangeHandler(Type) {
         if (clipboardText == "")
             return
 
-        ; OCR 방식과 동일하게 중복 번역 방지를 위한 유사도 체크
         similarity := GetSimilarity(clipboardText, Overlay.LastOcr)
         if (similarity > 0.85) {
-            LogDebug("[Clipboard] Duplicate or very similar text detected. Skipping.")
+            LogDebug("[Clipboard] Duplicate detected. Skipping.")
             return
         }
 
@@ -1870,24 +1804,19 @@ OnClipboardChangeHandler(Type) {
 
         SetLoading(true, "Clipboard Change")
 
-        ; Prioritize text cleaning (to prevent original bracket corruption)
         cleanedOriginal := CleanTextForOverlay(clipboardText, READ_MODE)
         displayOriginal := cleanedOriginal
 
-        ; Immediately display Yomigana (do not wait for translation)
         if (SHOW_OCR == "1" && Overlay.IsActive) {
             if (JAP_YOMIGANA == "1" && OCR_LANG == "jap") {
-                ; Pass the cleaned text to the Yomigana engine
                 displayOriginal := GetFurigana(cleanedOriginal)
             }
             Overlay.Text.Value := displayOriginal
             try WinRedraw("ahk_id " Overlay.Gui.Hwnd)
         }
 
-        ; Perform translation (time-consuming task)
         translatedText := Translate(clipboardText, CURRENT_PROFILE)
 
-        ; Final overlay update
         if (Overlay.IsActive && Overlay.HasProp("Gui") && WinExist("ahk_id " Overlay.Gui.Hwnd)) {
             if (SHOW_OCR == "1") {
                 Overlay.Text.Value := displayOriginal . "`n" . CleanTextForOverlay(translatedText, READ_MODE)

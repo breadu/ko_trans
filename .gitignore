@@ -209,5 +209,7 @@ __marimo__/
 # My files
 settings.ini
 ko_trans_*.txt
+*.exe
 test/
 voice/
+my_character_dict/

@@ -204,11 +204,11 @@ async def reload_engine():
         try:
             # Reload engine settings asynchronously to prevent blocking during API client setup
             await asyncio.to_thread(ai_engines.chatgpt_brain.reload_settings)
+            await asyncio.to_thread(ai_engines.gemini_brain.reload_settings)
+            await asyncio.to_thread(ai_engines.local_brain.reload_settings)
+            log("[Reload] AI Engines reloaded.")
         except Exception as e:
-            log(f"[Warning] ChatGPT Brain reload failed: {e}")
-
-        await asyncio.to_thread(ai_engines.gemini_brain.reload_settings)
-        await asyncio.to_thread(ai_engines.local_brain.reload_settings)
+            log(f"[Warning] AI Engine reload failed: {e}")
 
         return {
             "status": "success",
@@ -342,10 +342,7 @@ def get_smart_crop(img, update_history=True):
 
         # Ignore if the box is short AND not near the starting X line (likely random UI noise)
         if single_w < global_typical_h * 5.0 and not is_near_start:
-            log(f"[Filter] Single short box ignored (noise): w={single_w}, distance={abs(single_x - last_crop_pos['x'])}, global_typical_h={global_typical_h}")
             return img, []
-        elif is_near_start and single_w < global_typical_h * 5.0:
-            log(f"[Keep] Short box kept as it is near the start line: x={single_x}")
 
     raw_candidates = temp_candidates
 
@@ -498,10 +495,7 @@ async def do_detect(request: Request):
 
         actual_size = len(raw_data)
         if actual_size < img_size:
-            log(f"[SHM/Detect] ❌ Error: Read only {actual_size}/{img_size} bytes.")
             return PlainTextResponse("Data Underflow")
-
-        first_pixels = raw_data[:10].hex()
 
         img = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, 4))
         full_img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
@@ -531,7 +525,6 @@ async def do_ocr(request: Request):
 
         raw_data = await read_shm_with_flag(w, h)
         if raw_data is None:
-            log("[OCR] ❌ Failed to read SHM data.")
             return PlainTextResponse("")
 
         img = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, 4))
@@ -544,7 +537,6 @@ async def do_ocr(request: Request):
         # Offload smart crop calculation to keep server responsive
         _, text_boxes = await asyncio.to_thread(get_smart_crop, full_img, True)
         if not text_boxes:
-            log("[OCR] No text boxes found by CRAFT.")
             return PlainTextResponse("")
 
         recognizer = getattr(ocr, 'paddlex_pipeline', None)
@@ -588,11 +580,9 @@ async def do_ocr(request: Request):
                     'y_min': box['y'], 'y_max': box['y'] + box['h'],
                     'h': box['h'], 'text': text
                 })
-                log(f"[OCR Line] Score: {score:.4f} | Text: {text}")
 
         # Row sorting and final text assembly (corrects reading order based on vertical overlap)
         if not raw_boxes:
-            log("[OCR] Confidence too low or no text found in results.")
             return PlainTextResponse("")
 
         raw_boxes.sort(key=lambda b: b['y_min'])
@@ -659,7 +649,7 @@ async def translate(request: Request):
                     break
                 except: continue
 
-        log(f"[Translate] Request: '{text_to_translate[:30]}...' | Engine: {engine_name} | Model: {model_name}")
+        log(f"[Translate] Request: '{text_to_translate[:30]}...' | Engine: {engine_name}")
 
         # Map engine instances based on INI configuration
         if engine_name == "ChatGPT":
