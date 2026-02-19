@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.cluster import DBSCAN
+from logger_util import log
 
 def get_nvl_paragraphs(candidates):
     """
@@ -15,6 +16,8 @@ def get_nvl_paragraphs(candidates):
     if not candidates:
         return []
 
+    log(f"[NVL] Processing {len(candidates)} candidates for clustering.")
+
     # Map text fragments to 2D points using their geometric centers for spatial analysis
     points = []
     for c in candidates:
@@ -24,10 +27,14 @@ def get_nvl_paragraphs(candidates):
     points = np.array(points)
 
     # Perform Density-Based Spatial Clustering (DBSCAN) to identify related text blocks
-    # eps (150): Maximum distance to group adjacent lines; may require tuning based on resolution.
+    # eps (150): Maximum distance to group adjacent lines.
     # min_samples (1): Ensures isolated lines are still captured as valid individual paragraphs.
-    clustering = DBSCAN(eps=150, min_samples=1).fit(points)
-    labels = clustering.labels_
+    try:
+        clustering = DBSCAN(eps=150, min_samples=1).fit(points)
+        labels = clustering.labels_
+    except Exception as e:
+        log(f"[NVL Error] DBSCAN clustering failed: {e}")
+        return []
 
     # Aggregate candidate boxes into groups based on their calculated cluster IDs
     groups = {}
@@ -40,6 +47,7 @@ def get_nvl_paragraphs(candidates):
     for label, group in groups.items():
         # Skip noise points identified by DBSCAN (-1)
         if label == -1:
+            log("[NVL] Skipping noise points identified by cluster label -1.")
             continue
 
         # Sort text boxes within each cluster: primarily by top-to-bottom, secondarily left-to-right
@@ -48,5 +56,8 @@ def get_nvl_paragraphs(candidates):
 
     # Order the final list of paragraphs based on the vertical position of their first line
     valid_paragraphs.sort(key=lambda g: g[0]['box'][1])
+
+    num_paragraphs = len(valid_paragraphs)
+    log(f"[NVL] Clustering complete. Found {num_paragraphs} distinct paragraph(s).")
 
     return valid_paragraphs

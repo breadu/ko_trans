@@ -4,14 +4,8 @@ import configparser
 from google import genai
 from google.genai import types
 from openai import OpenAI
+from logger_util import log
 import path_util
-
-# Logging toggle for debugging console output
-DEBUG = False
-
-def log(msg):
-    if DEBUG:
-        print(msg)
 
 INI_PATH = path_util.INI_PATH
 PROMPT_PATH = path_util.PROMPT_PATH

@@ -210,6 +210,8 @@ __marimo__/
 settings.ini
 ko_trans_*.txt
 *.exe
+reset_paddle_models.bat
+backup/
 test/
 voice/
 my_character_dict/

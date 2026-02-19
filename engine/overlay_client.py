@@ -1,5 +1,6 @@
 import sys
 import os
+from logger_util import log
 import configparser
 import ctypes
 import struct
@@ -12,13 +13,6 @@ from PySide6.QtCore import Qt, QPoint, QTimer, QThread, Signal, QEvent, QUrl
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 import ai_engines
 import path_util
-
-# Set to True to enable console logging for development
-DEBUG = False
-
-def log(msg):
-    if DEBUG:
-        print(msg)
 
 # Maps engine names to shared AI engine instances
 ENGINE_MAP = {

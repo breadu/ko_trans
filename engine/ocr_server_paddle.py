@@ -2,16 +2,7 @@ import sys
 import os
 import datetime
 import logging
-
-# --- write logs in a file name "ko_trans_server_log.txt" ---
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_PATH = os.path.join(SCRIPT_DIR, "ko_trans_server_log.txt")
-
-if sys.stdout is None:
-    sys.stdout = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
-
-if sys.stderr is None:
-    sys.stderr = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+from logger_util import log, DEBUG
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,9 +34,6 @@ import ai_engines
 from PIL import Image, ImageDraw, ImageFont
 import nvl_processor
 
-# Set to True to enable console logging
-DEBUG = True
-
 # Initialize FastAPI application
 app = FastAPI(title="KO Trans Engine")
 
@@ -53,25 +41,6 @@ app = FastAPI(title="KO Trans Engine")
 SHM_NAME = "KO_TRANS_SHM"
 SHM_SIZE = 4000 * 2500 * 4 + 1 # Add 1 byte for status flag
 shm_obj = mmap.mmap(-1, SHM_SIZE, tagname=SHM_NAME)
-
-def log(msg):
-    if not DEBUG:
-        return
-
-    max_size = 1 * 1024 * 1024  # 1MB
-
-    try:
-        if os.path.exists(LOG_PATH):
-            if os.path.getsize(LOG_PATH) > max_size:
-                os.remove(LOG_PATH) # Delete if exceeds 1MB
-
-        with open(LOG_PATH, "a", encoding="utf-8") as f:
-            timestamp = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-            f.write(f"{timestamp} {msg}\n")
-
-    except Exception as e:
-        if sys.stdout is not None:
-            print(f"Log Error: {e}")
 
 log("--- 🥊 KO Trans: One-Shot OCR & Translation Engine (FastAPI) Activated ---")
 
