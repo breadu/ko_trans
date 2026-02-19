@@ -18,7 +18,7 @@ IsBooting() {
 ; ---------------------------------------------------------
 ; Global Configuration & Initialization
 ; ---------------------------------------------------------
-Global TEST_MODE := false
+Global OCR_TEST_MODE := false
 Global ENGINE_DEVICE_MODE := "CPU"
 Global WM_COPYDATA := 0x004A
 Global POT_COMMAND := 0x0400
@@ -1103,16 +1103,20 @@ TriggerOCRForTranslate() {
                     ocrResult := Trim(ocrResult)
 
                     ; OCR Test Mode Logic
-                    if (TEST_MODE) {
-                        clipText := Trim(A_Clipboard)
-                        if (clipText != "" && ocrResult != "" && RegExMatch(clipText, "[^\s\p{P}\p{S}]")) {
-                            sim := GetSimilarity(ocrResult, clipText)
-                            if (sim < 0.95) {
-                                if !DirExist(A_ScriptDir "\test")
-                                    DirCreate(A_ScriptDir "\test")
-                                ts := FormatTime(, "yyyy-MM-dd HH.mm.ss")
-                                FileAppend(ts " [OCR] " ocrResult "`n" ts " [TEXT] " clipText "`n`n", A_ScriptDir "\test\ocr_fail.txt", "UTF-8")
-                                try FileMove(A_Temp "\image_ko_trans_debug_craft.jpg", A_ScriptDir "\test\image_ko_trans_debug_craft_" ts ".jpg", 1)
+                    if (OCR_TEST_MODE) {
+                        if !ProcessExist("Textractor.exe") {
+                            BigToolTip("OCR 테스트 모드이나, 테스트 준비가 완료되지 않았습니다", 3000) ;
+                        } else {
+                            clipText := Trim(A_Clipboard)
+                            if (clipText != "" && ocrResult != "" && RegExMatch(clipText, "[^\s\p{P}\p{S}]")) {
+                                sim := GetSimilarity(ocrResult, clipText)
+                                if (sim < 0.95) {
+                                    if !DirExist(A_ScriptDir "\test")
+                                        DirCreate(A_ScriptDir "\test")
+                                    ts := FormatTime(, "yyyy-MM-dd HH.mm.ss")
+                                    FileAppend(ts " [OCR] " ocrResult "`n" ts " [TEXT] " clipText "`n`n", A_ScriptDir "\test\ocr_fail.txt", "UTF-8")
+                                    try FileMove(A_Temp "\image_ko_trans_debug_craft.jpg", A_ScriptDir "\test\image_ko_trans_debug_craft_" ts ".jpg", 1)
+                                }
                             }
                         }
                     }
