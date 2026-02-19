@@ -684,7 +684,10 @@ Manager_ShowEditor(TargetSection) {
     Manager_EditGui.Add("Text", "x230 y125", "W:"), C.TxtOCR_W := Manager_EditGui.Add("Text", "x245 y125 w40 cWhite", currW)
     Manager_EditGui.Add("Text", "x288 y125", "H:"), C.TxtOCR_H := Manager_EditGui.Add("Text", "x303 y125 w35 cWhite", currH)
     Manager_EditGui.Add("Button", "x345 y115 w120 h32", "🔍 영역 선택").OnEvent("Click", (*) => (
-        (C.DDLCaptureTarget.Text == "특정 윈도우" && (C.TxtCaptureProcess.Value == CAPTURE_WINDOW_NOT_SELECTED || !WinExist("ahk_exe " . C.TxtCaptureProcess.Value))) ?
+        (C.DDLCaptureTarget.Text == "클립보드") ?
+        MsgBox("캡처 대상이 클립보드이기 때문에, OCR 영역은 설정할 필요가 없습니다", "알림", 4096) :
+        (C.DDLCaptureTarget.Text == "특정 윈도우" && (C.TxtCaptureProcess.Value == CAPTURE_WINDOW_NOT_SELECTED ||
+        !WinExist("ahk_exe " . C.TxtCaptureProcess.Value))) ?
         MsgBox("캡처 대상 윈도우가 실행 중이지 않거나 선택되지 않았습니다.", "오류", 4096) :
         (Manager_EditGui.Hide(), ShowCaptureArea(C.TxtOCR_X, C.TxtOCR_Y, C.TxtOCR_W, C.TxtOCR_H, themeColor, C.DDLCaptureTarget.Text, C.TxtCaptureProcess.Value))
     ))
