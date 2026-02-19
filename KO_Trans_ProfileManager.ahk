@@ -203,12 +203,22 @@ ShowGateway() {
     Manager_Gateway.SetFont("s9 Bold " . statusColor)
     Manager_Gateway.Add("Text", "x280 y125 w100", deviceStatus)
 
+    ; Restart OCR Server / Reload AI Brain Button
+    Manager_Gateway.SetFont("s8 Norm cWhite")
+    BtnReload := Manager_Gateway.Add("Button", "x385 y120 w125 h25", "🔄 엔진 재시작")
+    BtnReload.OnEvent("Click", (*) => (
+        Manager_Gateway.Destroy(),
+        Manager_Gateway := 0,
+        ReloadEngine(),
+        ShowGateway()
+    ))
+
     ; Start/Stop Toggle Button
     btnText := WasOverlayActiveBeforeGUI ? "⛔ 번역 중지" : "🚀 번역 시작 (Shift+F12)"
     btnColor := WasOverlayActiveBeforeGUI ? "cFF5252" : "cWhite"
 
     Manager_Gateway.SetFont("s11 Bold " . btnColor)
-    BtnStart := Manager_Gateway.Add("Button", "x200 y145 w310 h55", btnText)
+    BtnStart := Manager_Gateway.Add("Button", "x200 y155 w310 h55", btnText)
     BtnStart.OnEvent("Click", (*) => (
         Manager_Gateway.Destroy(),
         Manager_Gateway := 0,
@@ -230,6 +240,9 @@ ShowGateway() {
     Manager_Gateway.Add("Button", "x510 y5 w25 h25", "X").OnEvent("Click", (*) => (Manager_Cleanup()))
 
     Manager_Gateway.Show("w540 h425")
+
+    BtnStart.Focus()
+
     LogDebug("[Manager] Gateway UI opened. Active Profile: " . CURRENT_PROFILE)
 }
 
@@ -1377,5 +1390,38 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
     } catch Error as e {
         LogDebug("[Error] Failed to save settings: " . e.Message)
         MsgBox("저장 실패: " e.Message, "오류", 4096)
+    }
+}
+
+ReloadEngine() {
+    global OCR_SERVER_URL, ENGINE_DEVICE_MODE
+
+    try {
+        BigToolTip("🔄 엔진 최적화 및 재시작 중...", 30000)
+
+        http := ComObject("MSXML2.XMLHTTP")
+        ; Create a unique URL to avoid cache issues
+        reloadUrl := StrReplace(OCR_SERVER_URL, "/ocr", "/reload?t=" . A_TickCount)
+
+        http.Open("GET", reloadUrl, true)
+        http.Send()
+
+        ; Wait for server response
+        while (http.ReadyState != 4) {
+            Sleep(100)
+        }
+
+        BigToolTip("") ; Clear tooltip
+
+        ; Update the device mode (GPU/CPU) from the server response
+        if RegExMatch(http.ResponseText, '"device"\s*:\s*"([^"]+)"', &match)
+            ENGINE_DEVICE_MODE := match[1]
+
+        LogDebug("[Reload] Manual Engine Reload Success. Device: " . ENGINE_DEVICE_MODE)
+        return true
+    } catch {
+        BigToolTip("⚠️ 엔진 재시작 실패", 3000)
+        LogDebug("[Error] Manual Engine Reload Failed.")
+        return false
     }
 }

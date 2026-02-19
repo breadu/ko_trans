@@ -1730,29 +1730,7 @@ UpdateOverlayToActiveProfile(forceProc := "", doReload := true) {
     IniWrite(CURRENT_PROFILE, INI_FILE, PROFILE_SETTINGS, "ACTIVE_PROFILE")
 
     if (doReload) {
-        try {
-            BigToolTip("🔄 OCR 엔진 최적화 중...", 30000)
-
-            http := ComObject("MSXML2.XMLHTTP")
-            reloadUrl := StrReplace(OCR_SERVER_URL, "/ocr", "/reload?t=" . A_TickCount)
-
-            http.Open("GET", reloadUrl, true)
-            http.Send()
-
-            while (http.ReadyState != 4) {
-                Sleep(100)
-            }
-
-            BigToolTip("")
-
-            if RegExMatch(http.ResponseText, '"device"\s*:\s*"([^"]+)"', &match)
-                ENGINE_DEVICE_MODE := match[1]
-
-            LogDebug("[Reload] OCR Engine Reload Success. Device: " . ENGINE_DEVICE_MODE)
-        } catch {
-            BigToolTip("")
-            LogDebug("[Error] OCR Engine Reload Failed.")
-        }
+        ReloadEngine()
     }
 
     if (Overlay.IsActive && Overlay.HasProp("Gui") && WinExist("ahk_id " Overlay.Gui.Hwnd)) {
