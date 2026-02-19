@@ -189,10 +189,16 @@ class GeminiEngine(BaseEngine):
             # Prevents cases where the response is blocked and text returns as None.
             if response.text:
                 res = response.text.strip()
+
+                if res.startswith("ThisTheR") or res.startswith("ThisTheS") or "ThisThe" in res:
+                    log(f"[Warning] Gemini safety rejection code detected. Not adding to history.")
+                    return "⚠️ [검열됨] 부적절한 콘텐츠로 인해 번역이 차단되었습니다."
+
                 self.history.extend([{"role":"user","content":text}, {"role":"assistant","content":res}])
+                if len(self.history) > 20: self.history = self.history[-20:]
                 return res
             else:
-                log("[Warning] Gemini response blocked despite BLOCK_NONE setting.")
+                log("[Warning] Gemini response blocked completely. Not adding to history.")
                 return "⚠️ 번역 실패: 제미나이 정책에 의해 응답이 차단되었습니다."
 
         except Exception as e:
@@ -282,9 +288,19 @@ class ChatGPTEngine(BaseEngine):
             messages = [{"role": "system", "content": system_content}]
             messages.extend(self.history[-10:])
             messages.append({"role": "user", "content": text})
+
             response = self.client.chat.completions.create(model=model_name or "gpt-4.1-nano", messages=messages)
             res = response.choices[0].message.content.strip()
+
+            refusal_keywords = ["I'm sorry", "I cannot fulfill", "I am unable to", "policy", "not translate"]
+            if any(kw in res for kw in refusal_keywords):
+                log(f"[Warning] ChatGPT refusal detected: {res[:50]}...")
+                return "⚠️ [검열됨] OpenAI 정책에 의해 번역이 거부되었습니다. (로컬 엔진 사용 권장)"
+
             self.history.extend([{"role":"user","content":text}, {"role":"assistant","content":res}])
+            if len(self.history) > 20:
+                self.history = self.history[-20:]
+
             return res
         except Exception as e:
             log(f"[Error] ChatGPT Translation Exception: {e}")
