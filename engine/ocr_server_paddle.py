@@ -1,19 +1,36 @@
 import sys
 import os
 import datetime
+import logging
+
+# --- write logs in a file name "ko_trans_server_log.txt" ---
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_PATH = os.path.join(SCRIPT_DIR, "ko_trans_server_log.txt")
+
+if sys.stdout is None:
+    sys.stdout = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+
+if sys.stderr is None:
+    sys.stderr = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
+logger = logging.getLogger("uvicorn")
+
 import cv2
 import numpy as np
 import traceback
 import math
 import tempfile
-import logging
 import configparser
 import asyncio
 import mmap
 import fugashi
 import re
 
-# FastAPI imports
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 import uvicorn
@@ -27,7 +44,7 @@ from PIL import Image, ImageDraw, ImageFont
 import nvl_processor
 
 # Set to True to enable console logging
-DEBUG = False
+DEBUG = True
 
 # Initialize FastAPI application
 app = FastAPI(title="KO Trans Engine")
@@ -37,26 +54,18 @@ SHM_NAME = "KO_TRANS_SHM"
 SHM_SIZE = 4000 * 2500 * 4 + 1 # Add 1 byte for status flag
 shm_obj = mmap.mmap(-1, SHM_SIZE, tagname=SHM_NAME)
 
-# Logging configuration using FastAPI/Uvicorn defaults
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("uvicorn")
-
-# --- write logs in a file name "ko_trans_server_log.txt" ---
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
 def log(msg):
     if not DEBUG:
         return
 
-    log_file = os.path.join(SCRIPT_DIR, "ko_trans_server_log.txt")
     max_size = 1 * 1024 * 1024  # 1MB
 
     try:
-        if os.path.exists(log_file):
-            if os.path.getsize(log_file) > max_size:
-                os.remove(log_file) # Delete if exceeds 1MB
+        if os.path.exists(LOG_PATH):
+            if os.path.getsize(LOG_PATH) > max_size:
+                os.remove(LOG_PATH) # Delete if exceeds 1MB
 
-        with open(log_file, "a", encoding="utf-8") as f:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
             timestamp = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
             f.write(f"{timestamp} {msg}\n")
 
@@ -557,6 +566,9 @@ async def do_ocr(request: Request):
             x1, x2 = max(0, x - pad), min(full_img.shape[1], x + w + pad)
             sub = full_img[y1:y2, x1:x2]
 
+            if sub.size > 0 and h < 45:
+                sub = cv2.resize(sub, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+
             # Write crops to file only in DEBUG mode for performance
             if DEBUG:
                 crop_path = os.path.join(tempfile.gettempdir(), f"image_ko_trans_crop_{i}.jpg")
@@ -601,6 +613,7 @@ async def do_ocr(request: Request):
             raw_boxes = remaining
 
         final_text = " ".join(["".join([b['text'] for b in r]) for r in rows]).strip()
+        final_text = fix_katakana_confusion(final_text)
         log(f"[OCR Result] Rows: {len(rows)} | Text: {final_text}")
         return PlainTextResponse(final_text)
 
@@ -668,6 +681,32 @@ async def translate(request: Request):
         log(f"[Error] Translation Pipeline Error:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def fix_katakana_confusion(text):
+    is_kana = lambda c: '\u30a0' <= c <= '\u30ff'
+
+    conf_map = {
+        '力': 'カ', '口': 'ロ', '工': 'エ', '夕': 'タ', '二': 'ニ',
+        '一': 'ー', 'へ': 'ヘ', '八': 'ハ', '卜': 'ト'
+    }
+
+    chars = list(text)
+    for i in range(len(chars)):
+        if chars[i] in conf_map:
+            prev1 = chars[i-1] if i > 0 else ""
+            prev2 = chars[i-2] if i > 1 else ""
+            next1 = chars[i+1] if i < len(chars)-1 else ""
+            next2 = chars[i+2] if i < len(chars)-2 else ""
+
+            if chars[i] == '一':
+                if prev1 and ('\u3040' <= prev1 <= '\u30ff'):
+                    chars[i] = 'ー'
+                continue
+
+            if any(is_kana(c) for c in [prev1, prev2, next1, next2]):
+                chars[i] = conf_map[chars[i]]
+
+    return "".join(chars)
+
 def get_jap_furigana(text):
     # Regex pattern for identifying name tags
     name_pattern = r'^([\[［【(（].+?[\]］】)）][:：]?|[^:：\s]{1,12}[:：])\s*'
@@ -715,4 +754,4 @@ def get_jap_furigana(text):
 if __name__ == '__main__':
     log("[System] KO Trans FastAPI Server starting on 127.0.0.1:5000...")
     # Start FastAPI server using Uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=5000, log_config=None)
+    uvicorn.run(app, host="127.0.0.1", port=5000, log_level="error")
