@@ -50,7 +50,7 @@ shm_obj = mmap.mmap(-1, SHM_SIZE, tagname=SHM_NAME)
 g_ocr = None
 g_session = None
 g_read_mode = "ADV"
-g_jap_read_vertical = "0"
+g_is_jap_read_vertical = False
 g_engine_name = "Gemini"
 g_jap_tagger = None
 g_active_profile = "Settings"
@@ -83,7 +83,7 @@ def init_craft_engine():
 
 def init_ocr_engine():
     """Reads settings.ini and initializes the OCR engine based on ACTIVE_PROFILE."""
-    global g_ocr, g_last_crop_pos, g_current_device, g_read_mode, g_jap_read_vertical, g_engine_name, g_jap_tagger, g_active_profile
+    global g_ocr, g_last_crop_pos, g_current_device, g_read_mode, g_is_jap_read_vertical, g_engine_name, g_jap_tagger, g_active_profile
 
     g_last_crop_pos = {'x': -1, 'y': -1}
     config = configparser.ConfigParser()
@@ -104,7 +104,7 @@ def init_ocr_engine():
             g_read_mode = config.get(active_profile, 'READ_MODE',
                                    fallback=config.get('Settings', 'READ_MODE', fallback='ADV'))
 
-            g_jap_read_vertical = config.get(active_profile, 'JAP_READ_VERTICAL',
+            jap_read_vertical = config.get(active_profile, 'JAP_READ_VERTICAL',
                                    fallback=config.get('Settings', 'JAP_READ_VERTICAL', fallback='0'))
 
             g_engine_name = config.get(active_profile, 'ENGINE',
@@ -115,6 +115,11 @@ def init_ocr_engine():
                                      fallback=config.get('Settings', 'LANG', fallback='eng'))
 
             g_active_profile = active_profile
+
+            if lang_from_ini == 'jap' and jap_read_vertical == '1':
+                g_is_jap_read_vertical = True
+            else:
+                g_is_jap_read_vertical = False
 
             log(f"[Config] Cached Settings -> Profile: {active_profile}, Mode: {g_read_mode}, ReadVertical: {g_jap_read_vertical}, Engine: {g_engine_name}")
 
@@ -259,9 +264,9 @@ def get_read_mode():
     global g_read_mode
     return g_read_mode
 
-def get_jap_read_vertical():
-    global g_jap_read_vertical
-    return g_jap_read_vertical
+def is_jap_read_vertical():
+    global g_is_jap_read_vertical
+    return g_is_jap_read_vertical
 
 def get_smart_crop(img, update_history=True):
     """
