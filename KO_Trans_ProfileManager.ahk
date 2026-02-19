@@ -104,7 +104,7 @@ Global INI_JAP_YOMIGANA := "JAP_YOMIGANA"
 ; ---------------------------------------------------------
 Global DebugLogFile := A_ScriptDir "\ko_trans_debug_log.txt"
 Global WasOverlayActiveBeforeGUI := false
-Global DEBUG_MODE := false
+Global DEBUG_MODE := true
 
 Global INI_FILE := A_ScriptDir "\settings.ini"
 

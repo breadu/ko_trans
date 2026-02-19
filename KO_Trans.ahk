@@ -1337,7 +1337,10 @@ CleanTextForOverlay(txt, readMode := "ADV") {
             currentLine := segment
         }
         else if (readMode == "ADV" && StrLen(currentLine) < 20) {
-            currentLine .= segment
+            if RegExMatch(currentLine, "[.?!。？！]$")
+                currentLine .= " " segment
+            else
+                currentLine .= segment
         } else {
             finalTxt .= currentLine . "`n"
             currentLine := segment
