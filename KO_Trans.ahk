@@ -837,6 +837,15 @@ ShowTransOverlay(show) {
 
         isServerOn := CheckServerStatus()
 
+        ; Calculate system border thickness caused by the +Resize option.
+        ; This is necessary because Windows adds invisible borders for resizing, which shifts the GUI.
+        borderX := DllCall("GetSystemMetrics", "Int", 32, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+        borderY := DllCall("GetSystemMetrics", "Int", 33, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+
+        ; Subtract the border thickness so that the visible area aligns exactly with the saved coordinates.
+        showX := Overlay.X - borderX
+        showY := Overlay.Y - borderY
+
         Overlay.Gui := Gui("+AlwaysOnTop -Caption +ToolWindow +Resize -DPIScale -MinimizeBox +E0x08000000", "TranslationOverlay")
         Overlay.Gui.BackColor := "000000"
         WinSetTransparent(OVERLAY_OPACITY, Overlay.Gui)
@@ -861,7 +870,8 @@ ShowTransOverlay(show) {
         OnMessage(0x0112, (wParam, *) => (wParam & 0xFFF0 = 0xF020 ? 0 : ""))
         OnMessage(WM_LBUTTONDOWN, DragTransWindow)
 
-        Overlay.Gui.Show("x" Overlay.X " y" Overlay.Y " w" Overlay.W " h" Overlay.H " NA")
+        ; Use the corrected showX and showY for precise positioning
+        Overlay.Gui.Show("x" showX " y" showY " w" Overlay.W " h" Overlay.H " NA")
 
         if (AUTO_DETECT_ENABLED == "1" && CAPTURE_TARGET != CAPTURE_TARGET_CLIPBOARD) {
             LogDebug("[System] Auto-Detection enabled. Starting WatchArea timer.")
@@ -1742,10 +1752,18 @@ UpdateOverlayToActiveProfile(forceProc := "", doReload := true) {
     }
 
     if (Overlay.IsActive && Overlay.HasProp("Gui") && WinExist("ahk_id " Overlay.Gui.Hwnd)) {
+        ; Calculate system border thickness caused by the +Resize option.
+        ; This ensures the visible client area stays aligned with the saved coordinates when moving.
+        borderX := DllCall("GetSystemMetrics", "Int", 32, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+        borderY := DllCall("GetSystemMetrics", "Int", 33, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+
         WinSetTransparent(OVERLAY_OPACITY, Overlay.Gui)
         Overlay.Gui.SetFont("s" OVERLAY_FONT_SIZE " c" OVERLAY_FONT_COLOR, "Segoe UI")
         Overlay.Text.SetFont("s" OVERLAY_FONT_SIZE " c" OVERLAY_FONT_COLOR)
-        Overlay.Gui.Move(Overlay.X, Overlay.Y, Overlay.W, Overlay.H)
+
+        ; Move the window while subtracting the invisible border offsets.
+        Overlay.Gui.Move(Overlay.X - borderX, Overlay.Y - borderY, Overlay.W, Overlay.H)
+
         WinRedraw("ahk_id " Overlay.Gui.Hwnd)
         UpdateTriggerHotkeys()
         LogDebug("[System] Overlay updated for profile: " CURRENT_PROFILE)

@@ -1045,23 +1045,25 @@ ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Pro
         global CaptureAreaGui
 
         ; Retrieve accurate client area dimensions
-        WinGetClientPos(&cX, &cY, &outW, &outH, CaptureAreaGui.Hwnd)
+        WinGetPos(&outX, &outY, &w, &h, CaptureAreaGui.Hwnd)
+        WinGetClientPos(,, &outW, &outH, CaptureAreaGui.Hwnd)
 
-        ; In specific window mode, subtract the visible starting point and save only 'pure relative coordinates'.
+        ; Restore the original screen coordinates by adding back the border offsets we subtracted earlier.
+        ; This ensures that 'Saved X' exactly matches the 'Starting X' if the window hasn't moved.
+        outX += borderX
+        outY += borderY
+
+        ; In specific window mode, we must subtract the visible starting point of that window.
         if (Mode == "특정 윈도우" && tVisibleX != 0) {
-            ; Calculating based on cX and cY completely eliminates the 2-3 pixel error.
-            outX := cX - tVisibleX
-            outY := cY - tVisibleY
-        } else {
-            outX := cX
-            outY := cY
+            outX -= tVisibleX
+            outY -= tVisibleY
         }
 
         Target_X.Value := outX, Target_Y.Value := outY, Target_W.Value := outW, Target_H.Value := outH
         CaptureAreaGui.Destroy()
         CaptureAreaGui := 0
 
-        LogDebug("[Manager] Area Confirmed (Client Base): X=" outX " Y=" outY " W=" outW " H=" outH)
+        LogDebug("[Manager] Area Confirmed (Coordinate-Matched): X=" outX " Y=" outY " W=" outW " H=" outH)
         if IsSet(Overlay)
             Overlay.IsBusy := false
 
@@ -1094,6 +1096,14 @@ ShowOverlayPreviewArea(Target_X, Target_Y, Target_W, Target_H, FontSize, Opacity
                . "이것은 오버레이 영역을 설정하기 위한 테스트 문구입니다. "
                . "실제 게임 자막이 나타날 위치와 크기를 가늠하는 데 도움이 됩니다.`n"
 
+    ; Get system border thickness caused by the +Resize option.
+    borderX := DllCall("GetSystemMetrics", "Int", 32, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+    borderY := DllCall("GetSystemMetrics", "Int", 33, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+
+    ; Pull the window frame outwards by the border thickness so that the 'visible area' aligns with target coords.
+    startX := Target_X.Value - borderX
+    startY := Target_Y.Value - borderY
+
     OverlayGui := Gui("+AlwaysOnTop +Resize -Caption +ToolWindow", "OverlayPreview")
     OverlayGui.Opt("-DPIScale")
     OverlayGui.BackColor := "000000"
@@ -1111,8 +1121,14 @@ ShowOverlayPreviewArea(Target_X, Target_Y, Target_W, Target_H, FontSize, Opacity
 
     OnOverlayConfirm(*) {
         global Overlay, OverlayGui
-        WinGetPos(&outX, &outY, &outW, &outH, OverlayGui.Hwnd)
+
+        ; Use WinGetPos to get the actual window position.
+        WinGetPos(&outX, &outY, &w, &h, OverlayGui.Hwnd)
         WinGetClientPos(, , &outW, &outH, OverlayGui.Hwnd)
+
+        ; Restore the original screen coordinates by adding back the border offsets.
+        outX += borderX
+        outY += borderY
 
         Target_X.Value := outX
         Target_Y.Value := outY
@@ -1121,7 +1137,7 @@ ShowOverlayPreviewArea(Target_X, Target_Y, Target_W, Target_H, FontSize, Opacity
 
         OverlayGui.Destroy()
         global OverlayGui := 0
-        LogDebug("[Manager] Overlay Area Confirmed: X=" outX " Y=" outY " W=" outW " H=" outH)
+        LogDebug("[Manager] Overlay Area Confirmed (Coordinate-Matched): X=" outX " Y=" outY " W=" outW " H=" outH)
 
         if IsSet(Overlay)
             Overlay.IsBusy := false
@@ -1130,7 +1146,7 @@ ShowOverlayPreviewArea(Target_X, Target_Y, Target_W, Target_H, FontSize, Opacity
     }
     OverlayGui.OnEvent("Close", (*) => (Overlay.IsBusy := false))
 
-    OverlayGui.Show("x" Target_X.Value " y" Target_Y.Value " w" Target_W.Value " h" Target_H.Value)
+    OverlayGui.Show("x" startX " y" startY " w" Target_W.Value " h" Target_H.Value)
 }
 
 OverlayPreview_Size(thisGui, minMax, width, height) {
