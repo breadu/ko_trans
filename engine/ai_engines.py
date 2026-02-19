@@ -17,6 +17,41 @@ class BaseEngine:
         # In-memory caches for frequently accessed data
         self.char_dict_cache = {}
         self.explanation_prompt_cache = None
+        self.api_key = ""
+        self.dict_enabled = "0"
+        self.dict_path = "NONE"
+        active_profile = self._get_active_profile_from_ini()
+        self.reload_settings(active_profile)
+
+    def _get_active_profile_from_ini(self):
+        config = configparser.ConfigParser()
+        for enc in ['utf-16', 'utf-8-sig', 'utf-8']:
+            try:
+                with open(INI_PATH, 'r', encoding=enc) as f:
+                    config.read_file(f)
+                return config.get('Settings', 'ACTIVE_PROFILE', fallback='Settings')
+            except: continue
+        return "Settings"
+
+    def _load_ini_settings(self, profile_name, key_name=None):
+        config = configparser.ConfigParser()
+        config.optionxform = str
+
+        for enc in ['utf-16', 'utf-8-sig', 'utf-8']:
+            try:
+                with open(INI_PATH, 'r', encoding=enc) as f:
+                    config.read_file(f)
+
+                if key_name:
+                    self.api_key = config.get('Settings', key_name, fallback="")
+
+                self.dict_enabled = config.get(profile_name, 'CHAR_DICT_ENABLED',
+                                              fallback=config.get('Settings', 'CHAR_DICT_ENABLED', fallback='0'))
+                self.dict_path = config.get(profile_name, 'CHAR_DICT_PATH',
+                                           fallback=config.get('Settings', 'CHAR_DICT_PATH', fallback='NONE'))
+                return True
+            except: continue
+        return False
 
     def _clear_caches(self):
         """Resets all memory caches when profile or settings change"""
@@ -43,35 +78,19 @@ class BaseEngine:
         if profile_name in self.char_dict_cache:
             return self.char_dict_cache[profile_name]
 
-        config = configparser.ConfigParser()
-        config.optionxform = str
-        dict_path, enabled = "NONE", "0"
-
-        # Sequential retry with different encodings to handle various INI file formats
-        success_enc = None
-        for enc in ['utf-16', 'utf-8-sig', 'utf-8']:
-            try:
-                with open(INI_PATH, 'r', encoding=enc) as f:
-                    config.read_file(f)
-                enabled = config.get(profile_name, 'CHAR_DICT_ENABLED', fallback=config.get('Settings', 'CHAR_DICT_ENABLED', fallback='0'))
-                dict_path = config.get(profile_name, 'CHAR_DICT_PATH', fallback=config.get('Settings', 'CHAR_DICT_PATH', fallback='NONE'))
-                success_enc = enc
-                break
-            except: continue
-
         res_str = ""
-        if enabled == "1" and os.path.exists(dict_path):
+        if self.dict_enabled == "1" and os.path.exists(self.dict_path):
             try:
-                with open(dict_path, 'r', encoding='utf-8') as f:
+                with open(self.dict_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 # Formats JSON data into a Markdown table for better LLM comprehension
                 rows = ["| Original Name (Source) | Korean Name (Output) | Character Context |", "|---|---|---|"]
                 for char in data:
                     rows.append(f"| {char.get('name','')} | {char.get('korean_name','')} | {char.get('description','')} |")
                 res_str = "\n".join(rows)
-                log(f"[Dict] Profile '{profile_name}': {len(data)} characters loaded using {success_enc}")
+                log(f"[Dict] Profile '{profile_name}': {len(data)} characters loaded.")
             except Exception as e:
-                log(f"[Error] Dictionary JSON load failed ({dict_path}): {e}")
+                log(f"[Error] Dictionary JSON load failed: {e}")
 
         self.char_dict_cache[profile_name] = res_str
         return res_str
@@ -79,28 +98,21 @@ class BaseEngine:
 class GeminiEngine(BaseEngine):
     def __init__(self):
         super().__init__()
-        self.client = self._setup_client()
 
-    def reload_settings(self):
+    def reload_settings(self, profile_name=None):
         """Triggered by profile changes to refresh API client and history"""
-        log("[Gemini] Settings reloaded. History and caches cleared.")
+        if profile_name is None:
+            profile_name = self._get_active_profile_from_ini()
+
+        log(f"[Gemini] Settings reloaded for profile: {profile_name}")
         self._clear_caches()
+        self._load_ini_settings(profile_name, 'GEMINI_API_KEY')
         self.client = self._setup_client()
         self.history = []
 
     def _setup_client(self):
-        config = configparser.ConfigParser()
-        api_key = ""
-        for enc in ['utf-16', 'utf-8-sig', 'utf-8']:
-            try:
-                with open(INI_PATH, 'r', encoding=enc) as f:
-                    config.read_file(f)
-                api_key = config.get('Settings', 'GEMINI_API_KEY', fallback="")
-                break
-            except: continue
-
-        if api_key:
-            return genai.Client(api_key=api_key)
+        if self.api_key:
+            return genai.Client(api_key=self.api_key)
         else:
             log("[Warning] Gemini Client failed: API Key missing in Settings.")
             return None
@@ -202,27 +214,20 @@ class GeminiEngine(BaseEngine):
 class ChatGPTEngine(BaseEngine):
     def __init__(self):
         super().__init__()
-        self.client = self._setup_client()
 
-    def reload_settings(self):
-        log("[ChatGPT] Settings reloaded. History and caches cleared.")
+    def reload_settings(self, profile_name=None):
+        log(f"[ChatGPT] Settings reloaded for profile: {profile_name}")
+        if profile_name is None:
+            profile_name = self._get_active_profile_from_ini()
+
         self._clear_caches()
+        self._load_ini_settings(profile_name, 'OPENAI_API_KEY')
         self.client = self._setup_client()
         self.history = []
 
     def _setup_client(self):
-        config = configparser.ConfigParser()
-        api_key = ""
-        for enc in ['utf-16', 'utf-8-sig', 'utf-8']:
-            try:
-                with open(INI_PATH, 'r', encoding=enc) as f:
-                    config.read_file(f)
-                api_key = config.get('Settings', 'OPENAI_API_KEY', fallback="")
-                break
-            except: continue
-
-        if api_key:
-            return OpenAI(api_key=api_key)
+        if self.api_key:
+            return OpenAI(api_key=self.api_key)
         else:
             log("[Warning] ChatGPT Client failed: API Key missing in Settings.")
             return None
@@ -306,9 +311,13 @@ class LocalEngine(BaseEngine):
         # Defaults to local Ollama API endpoint
         self.client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
 
-    def reload_settings(self):
-        log("[Local] Local history and caches cleared.")
+    def reload_settings(self, profile_name=None):
+        log(f"[Local] Settings reloaded for profile: {profile_name}")
+        if profile_name is None:
+            profile_name = self._get_active_profile_from_ini()
+
         self._clear_caches()
+        self._load_ini_settings(profile_name, None)
         self.history = []
 
     def get_explanation(self, text, model_name="gemma3:12b"):

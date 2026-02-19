@@ -58,6 +58,7 @@ Global DEFAULT_SHOW_OCR := "1"
 Global DEFAULT_CAPTURE_TARGET := CAPTURE_TARGET_SCREEN
 Global DEFAULT_CAPTURE_PROCESS := "NONE"
 Global DEFAULT_JAP_YOMIGANA := 0
+Global DEFAULT_JAP_READ_VERTICAL := 0
 
 Global CAPTURE_WINDOW_NOT_SELECTED := "윈도우가 선택되지 않았습니다"
 Global CHAR_DICT_NOT_SELECTED := "파일이 선택되지 않았습니다"
@@ -98,6 +99,7 @@ Global INI_SHOW_OCR := "SHOW_OCR"
 Global INI_CAPTURE_TARGET := "CAPTURE_TARGET"
 Global INI_CAPTURE_PROCESS := "CAPTURE_PROCESS"
 Global INI_JAP_YOMIGANA := "JAP_YOMIGANA"
+Global INI_JAP_READ_VERTICAL := "JAP_READ_VERTICAL"
 
 ; ---------------------------------------------------------
 ; Path and State Initialization
@@ -376,6 +378,7 @@ Manager_CreateProfile() {
     IniWrite(DEFAULT_CHAR_DICT_ENABLED, INI_FILE, newName, INI_CHAR_DICT_ENABLED)
     IniWrite(DEFAULT_CHAR_DICT_PATH, INI_FILE, newName, INI_CHAR_DICT_PATH)
     IniWrite(DEFAULT_JAP_YOMIGANA, INI_FILE, newName, INI_JAP_YOMIGANA)
+    IniWrite(DEFAULT_JAP_READ_VERTICAL, INI_FILE, newName, INI_JAP_READ_VERTICAL)
 
     MsgBox("[" newName "] 프로필이 생성되었습니다.`n이제 에디터에서 세부 설정을 조정해주세요!", "성공", 64)
 
@@ -599,6 +602,7 @@ Manager_ShowEditor(TargetSection) {
     currCaptureTarget := IniRead(INI_FILE, TargetSection, INI_CAPTURE_TARGET, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_TARGET, DEFAULT_CAPTURE_TARGET))
     currCaptureProcess := IniRead(INI_FILE, TargetSection, INI_CAPTURE_PROCESS, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_PROCESS, DEFAULT_CAPTURE_PROCESS))
     currJapYomigana := IniRead(INI_FILE, TargetSection, INI_JAP_YOMIGANA, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_YOMIGANA, DEFAULT_JAP_YOMIGANA))
+    currJapReadVertical := IniRead(INI_FILE, TargetSection, INI_JAP_READ_VERTICAL, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_READ_VERTICAL, DEFAULT_JAP_READ_VERTICAL))
 
     Manager_EditGui := Gui("+AlwaysOnTop -Caption +Border", "Editor")
     Manager_EditGui.BackColor := "0x1A1A1A"
@@ -644,12 +648,13 @@ Manager_ShowEditor(TargetSection) {
 
     Manager_EditGui.SetFont("s10 Norm cWhite")
 
-    Manager_EditGui.Add("GroupBox", "x20 y" . yStart . " w470 h65 cGray", "번역 언어")
+    Manager_EditGui.Add("GroupBox", "x20 y" . yStart . " w470 h85 cGray", "번역 언어")
     Manager_EditGui.Add("Text", "x35 y" . (yStart + 32) . " w40", "언어:")
     C.DDLLang := Manager_EditGui.Add("DropDownList", "x85 y" . (yStart + 29) . " w80 Choose" (currLang == "eng" ? 1 : 2), ["eng", "jap"])
     C.ChkJapYomigana := Manager_EditGui.Add("CheckBox", "x220 y" . (yStart + 32) . " cWhite " (currJapYomigana == "1" ? "Checked" : ""), "일본어에서 한자 요미가나 추가")
+    C.ChkJapReadVertical := Manager_EditGui.Add("CheckBox", "x220 y" . (yStart + 52) . " cWhite " (currJapReadVertical == "1" ? "Checked" : ""), "일본어 세로읽기 지원")
 
-    yAI := yStart + 75
+    yAI := yStart + 95
     Manager_EditGui.Add("GroupBox", "x20 y" . yAI . " w470 h65 cGray", "번역 AI 엔진")
     Manager_EditGui.Add("Text", "x35 y" . (yAI + 32) . " w40", "엔진:")
     C.DDLEngine := Manager_EditGui.Add("DropDownList", "x85 y" . (yAI + 29) . " w100 Choose" engineIdx, [ENGINE_GEMINI, ENGINE_OPENAI, ENGINE_LOCAL])
@@ -853,6 +858,7 @@ Manager_ShowEditor(TargetSection) {
         C.SliderOpacity.Value, C.SliderFont.Value, C.TxtColorVal.Value,
         C.ChkDict.Value, C.TxtDictPath.Value,
         C.ChkJapYomigana.Value,
+        C.ChkJapReadVertical.Value,
         C.ComboKey.Text, C.ComboMouse.Text, C.ComboPad.Text,
         (TargetSection==PROFILE_SETTINGS?C.EditGemini.Value:""),
         (TargetSection==PROFILE_SETTINGS?C.EditOpenAI.Value:""),
@@ -1237,6 +1243,7 @@ Manager_ResetToDefault(TargetSection, C) {
     C.DDLLang.Choose(1)
     C.DDLEngine.Choose(1)
     C.ChkJapYomigana.Value := DEFAULT_JAP_YOMIGANA
+    C.ChkJapReadVertical.Value := DEFAULT_JAP_READ_VERTICAL
 
     C.SliderOpacity.Value := DEFAULT_OVERLAY_OPACITY
     C.TextOpacityVal.Value := Round((DEFAULT_OVERLAY_OPACITY / 255) * 100) . "%"
@@ -1290,8 +1297,8 @@ Manager_IsValidPath(FilePath) {
 
 ; Saves configuration and notifies Python server if critical settings changed
 SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverlayW, valOverlayH, valLang, valEngine, valModel,
-    valOpacity, valFontSize, valFontColor, valDictEnabled, valDictPath, valJapYomigana, valKey, valMouse, valPad, valGemini, valOpenAI, valOCRStartTime, valAutoDetect,
-    valReadMode, valShowOcr, valCaptureTarget, valCaptureProcess) {
+    valOpacity, valFontSize, valFontColor, valDictEnabled, valDictPath, valJapYomigana, valJapReadVertical, valKey, valMouse, valPad,
+    valGemini, valOpenAI, valOCRStartTime, valAutoDetect, valReadMode, valShowOcr, valCaptureTarget, valCaptureProcess) {
     Global INI_FILE, Manager_EditGui
 
     valOCRStartTime := Integer(StrReplace(String(valOCRStartTime), ",", ""))
@@ -1322,6 +1329,8 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         valDictPath := DEFAULT_CHAR_DICT_PATH
     }
 
+    valReadMode := (valReadMode == "노벨" ? READ_MODE_NVL : READ_MODE_ADV)
+
     try {
         oldCaptureTarget := IniRead(INI_FILE, Section, "CAPTURE_TARGET", CAPTURE_TARGET_SCREEN)
         modelKey := (valEngine == ENGINE_GEMINI ? INI_GEMINI_MODEL : (valEngine == ENGINE_OPENAI ? INI_GPT_MODEL : INI_LOCAL_MODEL))
@@ -1330,7 +1339,8 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         oldEngine := IniRead(INI_FILE, Section, INI_ENGINE, "")
         oldDictEn := IniRead(INI_FILE, Section, INI_CHAR_DICT_ENABLED, "")
         oldDictPath := IniRead(INI_FILE, Section, INI_CHAR_DICT_PATH, "")
-        oldJapYomigana := IniRead(INI_FILE, Section, INI_JAP_YOMIGANA, "")
+        oldJapReadVertical := IniRead(INI_FILE, Section, INI_JAP_READ_VERTICAL, "")
+        oldReadMode := IniRead(INI_FILE, Section, INI_READ_MODE, "")
 
         oldGemini := (Section == PROFILE_SETTINGS) ? IniRead(INI_FILE, PROFILE_SETTINGS, INI_GEMINI_API_KEY, "") : ""
         oldOpenAI := (Section == PROFILE_SETTINGS) ? IniRead(INI_FILE, PROFILE_SETTINGS, INI_OPENAI_API_KEY, "") : ""
@@ -1338,9 +1348,14 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         ; Check if changes require immediate Python engine refresh
         isServerRequired := (valLang != oldLang || valEngine != oldEngine || valModel != oldModel
                             || valDictEnabled != oldDictEn || valDictPath != oldDictPath
+                            || valReadMode != oldReadMode || valJapReadVertical != oldJapReadVertical
                             || (Section == PROFILE_SETTINGS && (valGemini != oldGemini || valOpenAI != oldOpenAI)))
         if (isServerRequired) {
-            reloadReason := (valLang != oldLang ? "[Lang] " : "") . (valEngine != oldEngine ? "[Engine] " : "") . (valModel != oldModel ? "[Model] " : "") . (valDictEnabled != oldDictEn ? "[DictToggle] " : "") . (valDictPath != oldDictPath ? "[DictPath] " : "")
+            reloadReason := (valLang != oldLang ? "[Lang] " : "") .
+            (valEngine != oldEngine ? "[Engine] " : "") . (valModel != oldModel ? "[Model] " : "") .
+            (valDictEnabled != oldDictEn ? "[DictToggle] " : "") . (valDictPath != oldDictPath ? "[DictPath] " : "") .
+            (valReadMode != oldReadMode ? "[ReadMode] " : "") . (valJapReadVertical != oldJapReadVertical ? "[JapReadVertical] " : "")
+
             LogDebug("[Manager] SaveAndApply: Server reload required for Profile [" . Section . "]. Reasons: " . reloadReason)
         } else {
             LogDebug("[Manager] SaveAndApply: Settings saved for Profile [" . Section . "]. No server reload needed.")
@@ -1349,8 +1364,6 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         valKey := (valKey == "없음" ? KEY_NONE : valKey)
         valMouse := (valMouse == "왼쪽 클릭" ? MOUSE_LBUTTON : valMouse == "오른쪽 클릭" ? MOUSE_RBUTTON : MOUSE_NONE)
         valPad := (valPad == "A버튼" ? PAD_JOY1 : valPad == "B버튼" ? PAD_JOY2 : PAD_NONE)
-
-        valReadMode := (valReadMode == "노벨" ? READ_MODE_NVL : READ_MODE_ADV)
 
         ; Write settings to INI
         IniWrite(valX, INI_FILE, Section, INI_OCR_X), IniWrite(valY, INI_FILE, Section, INI_OCR_Y)
@@ -1362,6 +1375,7 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         IniWrite(valFontColor, INI_FILE, Section, INI_OVERLAY_FONT_COLOR)
         IniWrite(valDictEnabled, INI_FILE, Section, INI_CHAR_DICT_ENABLED), IniWrite(valDictPath, INI_FILE, Section, INI_CHAR_DICT_PATH)
         IniWrite(valJapYomigana, INI_FILE, Section, INI_JAP_YOMIGANA)
+        IniWrite(valJapReadVertical, INI_FILE, Section, INI_JAP_READ_VERTICAL)
         IniWrite(valModel, INI_FILE, Section, modelKey)
         IniWrite(valKey, INI_FILE, Section, INI_KEY_TRIGGER)
         IniWrite(valMouse, INI_FILE, Section, INI_MOUSE_TRIGGER)

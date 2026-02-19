@@ -34,21 +34,19 @@ def log(msg):
 
     try:
         # Check if the log file exists and exceeds the size limit
-        if os.path.exists(LOG_PATH):
-            if os.path.getsize(LOG_PATH) > max_size:
-                os.remove(LOG_PATH) # Delete old log to start fresh
+        if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > max_size:
+            try:
+                os.remove(LOG_PATH)
+            except:
+                pass
 
         # Generate timestamp and format the final message
-        timestamp = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]") #
+        timestamp = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
         formatted_msg = f"{timestamp} {msg}"
 
-        # Write the message to the log file
-        with open(LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(formatted_msg + "\n")
-
         # Print to console for real-time monitoring if available
-        print(formatted_msg)
+        print(formatted_msg, flush=True)
 
     except Exception as e:
         # Fallback print if file logging fails
-        print(f"Logging Error: {e}")
+        pass

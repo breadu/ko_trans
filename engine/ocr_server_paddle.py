@@ -4,13 +4,6 @@ import datetime
 import logging
 from logger_util import log, DEBUG
 
-logging.basicConfig(
-    level=logging.INFO,
-    stream=sys.stdout,
-    format='%(asctime)s [%(levelname)s] %(message)s'
-)
-logger = logging.getLogger("uvicorn")
-
 import cv2
 import numpy as np
 import traceback
@@ -24,6 +17,7 @@ import re
 
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
+from contextlib import asynccontextmanager
 import uvicorn
 
 from paddleocr import PaddleOCR
@@ -34,50 +28,64 @@ import ai_engines
 from PIL import Image, ImageDraw, ImageFont
 import nvl_processor
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log("--- 🥊 KO Trans: One-Shot OCR & Translation Engine (FastAPI) Activated ---")
+    init_ocr_engine()
+    init_craft_engine()
+    log("[System] KO Trans FastAPI Server is ready.")
+
+    yield
+    log("[System] KO Trans FastAPI Server is shutting down.")
+
 # Initialize FastAPI application
-app = FastAPI(title="KO Trans Engine")
+app = FastAPI(title="KO Trans Engine", lifespan=lifespan)
 
 # --- Shared Memory Configuration ---
 SHM_NAME = "KO_TRANS_SHM"
 SHM_SIZE = 4000 * 2500 * 4 + 1 # Add 1 byte for status flag
 shm_obj = mmap.mmap(-1, SHM_SIZE, tagname=SHM_NAME)
 
-log("--- 🥊 KO Trans: One-Shot OCR & Translation Engine (FastAPI) Activated ---")
-
 # --- Define the Initialization Function ---
-ocr = None
-current_device = "Unknown"
-global_typical_h = -1.0
-alpha = 0.2
-h_history = []
+g_ocr = None
+g_session = None
+g_read_mode = "ADV"
+g_jap_read_vertical = "0"
+g_engine_name = "Gemini"
+g_jap_tagger = None
+g_active_profile = "Settings"
+g_current_device = "Unknown"
+g_typical_h = -1.0
+g_h_history = []
+g_last_crop_pos = {'x': -1, 'y': -1}     # Store top-left coordinates of the last successful crop to improve continuity
+
 MAX_HISTORY = 10
 INI_PATH = path_util.INI_PATH
 
-def get_config_mode():
-    """Reads the current MODE (ADV or NVL) from settings.ini."""
-    config = configparser.ConfigParser()
-    active_profile = 'Settings'
-    if os.path.exists(INI_PATH):
-        try:
-            # Sequential retry with different encodings to handle various INI file formats
-            for enc in ['utf-16', 'utf-8-sig', 'utf-8']:
-                try:
-                    with open(INI_PATH, 'r', encoding=enc) as f:
-                        config.read_file(f)
-                    break
-                except: continue
+# Function implementations
+def init_craft_engine():
+    """
+    Loads the CRAFT (Scout) ONNX model into memory.
+    Ensures that the model is only loaded when the server starts.
+    """
+    global g_session
+    model_path = path_util.CRAFT_MODEL_PATH
+    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
 
-            active_profile = config.get('Settings', 'ACTIVE_PROFILE', fallback='Settings')
-            return config.get(active_profile, 'READ_MODE', fallback=config.get('Settings', 'READ_MODE', fallback='ADV'))
-        except:
-            return 'ADV'
-    return 'ADV'
+    try:
+        # Attempt to load with GPU support (CUDA)
+        g_session = ort.InferenceSession(model_path, providers=providers)
+        log(f"--- [Info] CRAFT Loaded. Providers: {g_session.get_providers()}")
+    except Exception as e:
+        # Fallback to CPU if CUDA fails
+        log(f"--- [Error] CRAFT CUDA loading failed: {e}")
+        g_session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
 
 def init_ocr_engine():
     """Reads settings.ini and initializes the OCR engine based on ACTIVE_PROFILE."""
-    global ocr, last_crop_pos, current_device
+    global g_ocr, g_last_crop_pos, g_current_device, g_read_mode, g_jap_read_vertical, g_engine_name, g_jap_tagger, g_active_profile
 
-    last_crop_pos = {'x': -1, 'y': -1}
+    g_last_crop_pos = {'x': -1, 'y': -1}
     config = configparser.ConfigParser()
     lang_from_ini = 'eng'
     active_profile = 'Settings'
@@ -90,14 +98,39 @@ def init_ocr_engine():
                         config.read_file(f)
                     break
                 except: continue
+
             active_profile = config.get('Settings', 'ACTIVE_PROFILE', fallback='Settings')
+
+            g_read_mode = config.get(active_profile, 'READ_MODE',
+                                   fallback=config.get('Settings', 'READ_MODE', fallback='ADV'))
+
+            g_jap_read_vertical = config.get(active_profile, 'JAP_READ_VERTICAL',
+                                   fallback=config.get('Settings', 'JAP_READ_VERTICAL', fallback='0'))
+
+            g_engine_name = config.get(active_profile, 'ENGINE',
+                                     fallback=config.get('Settings', 'ENGINE', fallback='Gemini'))
 
             # Read LANG for the specific profile; fallback to global Settings if missing
             lang_from_ini = config.get(active_profile, 'LANG',
                                      fallback=config.get('Settings', 'LANG', fallback='eng'))
 
+            g_active_profile = active_profile
+
+            log(f"[Config] Cached Settings -> Profile: {active_profile}, Mode: {g_read_mode}, ReadVertical: {g_jap_read_vertical}, Engine: {g_engine_name}")
+
         except Exception as e:
             log(f"--- [Warning] INI Read Error: {e} ---")
+
+    if lang_from_ini == 'jap':
+        if g_jap_tagger is None:
+            try:
+                g_jap_tagger = fugashi.Tagger()
+                log("[System] Japanese Tagger (fugashi) initialized and cached.")
+            except Exception as e:
+                log(f"[Error] Failed to initialize fugashi: {e}")
+    else:
+        # 영어 모드로 전환 시 메모리 절약을 위해 태거 해제 (선택 사항)
+        g_jap_tagger = None
 
     # Map profile language to PaddleOCR language codes
     paddle_lang = 'en' if lang_from_ini == 'eng' else 'japan'
@@ -107,13 +140,13 @@ def init_ocr_engine():
     if can_use_gpu:
         try:
             # Attempt to use GPU (Requires CUDA & cuDNN)
-            ocr = PaddleOCR(
+            g_ocr = PaddleOCR(
                 lang=paddle_lang,
                 device='gpu',
                 ocr_version='PP-OCRv5',
                 use_textline_orientation=True
             )
-            current_device = "GPU"
+            g_current_device = "GPU"
             log("--- 🚀 KO Trans: GPU Mode Activated ---")
         except Exception as e:
             log(f"--- ⚠️ GPU Init failed: {e} ---")
@@ -121,17 +154,14 @@ def init_ocr_engine():
 
     if not can_use_gpu:
         # Plan B: Fallback to CPU mode
-        ocr = PaddleOCR(
+        g_ocr = PaddleOCR(
             lang=paddle_lang,
             device='cpu',
             ocr_version='PP-OCRv5',
             use_textline_orientation=True
         )
-        current_device = "CPU"
+        g_current_device = "CPU"
         log("--- 💻 KO Trans: Falling back to CPU Mode ---")
-
-# Initialize engines on server startup
-init_ocr_engine()
 
 async def read_shm_with_flag(w, h):
     """Safely reads image from shared memory by checking status flags (0:Idle, 1:Writing, 2:Ready)"""
@@ -166,13 +196,13 @@ async def read_shm_with_flag(w, h):
 # Lightweight endpoint for health checks
 @app.get("/health")
 async def health_check():
-    global current_device
-    return {"status": "online", "device": current_device}
+    global g_current_device
+    return {"status": "online", "device": g_current_device}
 
 # Endpoint to reload configuration and restart all engines
 @app.get("/reload")
 async def reload_engine():
-    global current_device
+    global g_current_device, g_active_profile
     try:
         log("[System] Reloading all engines via /reload...")
 
@@ -181,34 +211,21 @@ async def reload_engine():
 
         try:
             # Reload engine settings asynchronously to prevent blocking during API client setup
-            await asyncio.to_thread(ai_engines.chatgpt_brain.reload_settings)
-            await asyncio.to_thread(ai_engines.gemini_brain.reload_settings)
-            await asyncio.to_thread(ai_engines.local_brain.reload_settings)
-            log("[Reload] AI Engines reloaded.")
+            await asyncio.to_thread(ai_engines.chatgpt_brain.reload_settings, g_active_profile)
+            await asyncio.to_thread(ai_engines.gemini_brain.reload_settings, g_active_profile)
+            await asyncio.to_thread(ai_engines.local_brain.reload_settings, g_active_profile)
+            log(f"[Reload] AI Engines reloaded with profile '{g_active_profile}'.")
         except Exception as e:
             log(f"[Warning] AI Engine reload failed: {e}")
 
         return {
             "status": "success",
-            "device": current_device,
-            "message": "All engines reloaded successfully"
+            "device": g_current_device,
+            "message": f"Reloaded successfully with profile: {g_active_profile}"
         }
     except Exception as e:
         log(f"[Error] Reload failed:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# CRAFT (The Scout) - ONNX Logic
-model_path = path_util.CRAFT_MODEL_PATH
-providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-try:
-    session = ort.InferenceSession(model_path, providers=providers)
-    log(f"--- [Info] CRAFT Loaded. Providers: {session.get_providers()}")
-except Exception as e:
-    log(f"--- [Error] CRAFT CUDA loading failed: {e}")
-    session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
-
-# Store top-left coordinates of the last successful crop to improve continuity
-last_crop_pos = {'x': -1, 'y': -1}
 
 def select_best_adv_group(groups, res_img, target_w, target_h):
     """ADV Mode Selection Logic: Picks the best dialogue box candidate based on scoring."""
@@ -228,22 +245,30 @@ def select_best_adv_group(groups, res_img, target_w, target_h):
         center_bias = 1.0 - (abs(avg_cx - (target_w / 2)) / (target_w / 2))
 
         pos_weight = 1.0
-        if last_crop_pos['x'] != -1 and last_crop_pos['y'] != -1:
+        if g_last_crop_pos['x'] != -1 and g_last_crop_pos['y'] != -1:
             group_min_x = min(c['box'][0] for c in g)
             group_min_y = min(c['box'][1] for c in g)
-            dist = math.sqrt((group_min_x - last_crop_pos['x'])**2 + (group_min_y - last_crop_pos['y'])**2)
+            dist = math.sqrt((group_min_x - g_last_crop_pos['x'])**2 + (group_min_y - g_last_crop_pos['y'])**2)
             pos_weight = 1.0 + (5.0 * math.exp(-dist / 100.0))
 
         return (num_boxes ** 2) * total_width * avg_ar * center_bias * darkness * pos_weight
 
     return max(groups, key=lambda g: calculate_score(g, res_img))
 
+def get_read_mode():
+    global g_read_mode
+    return g_read_mode
+
+def get_jap_read_vertical():
+    global g_jap_read_vertical
+    return g_jap_read_vertical
+
 def get_smart_crop(img, update_history=True):
     """
     Common detection flow for both ADV and NVL modes.
     Uses CRAFT to find candidates, then branches processing based on MODE.
     """
-    global global_typical_h, h_history, alpha
+    global g_typical_h, g_h_history, g_session
     if img is None:
         log(f"[Error] get_smart_crop: Image is None")
         return None, []
@@ -271,7 +296,7 @@ def get_smart_crop(img, update_history=True):
     res_img_float -= np.array([123.68, 116.78, 103.94], dtype=np.float32)
     res_img_float /= 255.0
     blob = np.transpose(res_img_float, (2, 0, 1))[np.newaxis, :, :, :]
-    outputs = session.run(None, {session.get_inputs()[0].name: blob})
+    outputs = g_session.run(None, {g_session.get_inputs()[0].name: blob})
     score_text = outputs[0][0, 0, :, :] if outputs[0].shape[1] in [1, 2] else outputs[0][0, :, :, 0]
 
     _, mask = cv2.threshold(score_text, 0.3, 255, cv2.THRESH_BINARY)
@@ -289,14 +314,14 @@ def get_smart_crop(img, update_history=True):
         aspect_ratio = w / float(h) if h > 0 else 0
         if aspect_ratio < 0.5: continue
 
-        # Filter candidates based on global_typical_h (learned dialogue height)
-        if global_typical_h > 0:
+        # Filter candidates based on g_typical_h (learned dialogue height)
+        if g_typical_h > 0:
             # Filter out tiny regions (probable noise)
-            if h < global_typical_h * 0.7:
+            if h < g_typical_h * 0.7:
                 continue
 
             # Filter out oversized regions (background or giant UI)
-            if h > global_typical_h * 2.0:
+            if h > g_typical_h * 2.0:
                 continue
 
         # Include width to prevent downstream errors
@@ -306,20 +331,20 @@ def get_smart_crop(img, update_history=True):
         return img, []
 
     # Apply horizontal noise filtering only for single-box detections
-    if len(temp_candidates) == 1 and global_typical_h > 0:
+    if len(temp_candidates) == 1 and g_typical_h > 0:
         cand = temp_candidates[0]
         single_w = cand['w']
         single_x = cand['box'][0]
 
         # Check if the box is positioned near the starting X-coordinate of previous dialogues
         is_near_start = False
-        if last_crop_pos['x'] != -1:
+        if g_last_crop_pos['x'] != -1:
             # Threshold: 1.5x character height
-            if abs(single_x - last_crop_pos['x']) <= (global_typical_h * 3):
+            if abs(single_x - g_last_crop_pos['x']) <= (g_typical_h * 3):
                 is_near_start = True
 
         # Ignore if the box is short AND not near the starting X line (likely random UI noise)
-        if single_w < global_typical_h * 5.0 and not is_near_start:
+        if single_w < g_typical_h * 5.0 and not is_near_start:
             return img, []
 
     raw_candidates = temp_candidates
@@ -355,7 +380,7 @@ def get_smart_crop(img, update_history=True):
         if not added: groups.append([cand])
 
     # 3. Branching based on Mode
-    mode = get_config_mode()
+    mode = get_read_mode()
     selected_boxes = []
     paragraph_groups = []
 
@@ -365,11 +390,11 @@ def get_smart_crop(img, update_history=True):
         # Combine all paragraphs into a single list of boxes for processing
         for p in paragraph_groups:
             selected_boxes.extend(p)
-        # Update last_crop_pos for NVL continuity
+        # Update g_last_crop_pos for NVL continuity
         if selected_boxes:
             all_pts = np.concatenate([c['cnt'] for c in selected_boxes])
             gx, _, _, _ = cv2.boundingRect(all_pts)
-            last_crop_pos['x'] = gx
+            g_last_crop_pos['x'] = gx
     else:
         # ADV Mode: Select the single best dialogue group
         best_group = select_best_adv_group(groups, res_img, target_w, target_h)
@@ -402,25 +427,25 @@ def get_smart_crop(img, update_history=True):
         if selected_boxes:
             group_p = np.concatenate([c['cnt'] for c in selected_boxes])
             gx, gy, _, _ = cv2.boundingRect(group_p)
-            last_crop_pos['x'], last_crop_pos['y'] = gx, gy
+            g_last_crop_pos['x'], g_last_crop_pos['y'] = gx, gy
 
     if selected_boxes and update_history:
         avg_h = sum(c['h'] for c in selected_boxes) / len(selected_boxes)
 
         if (target_h * 0.02) < avg_h < (target_h * 0.15):
-            h_history.append(avg_h)
-            if len(h_history) > MAX_HISTORY:
-                h_history.pop(0)
+            g_h_history.append(avg_h)
+            if len(g_h_history) > MAX_HISTORY:
+                g_h_history.pop(0)
 
-            temp_sorted = sorted(h_history)
-            global_typical_h = temp_sorted[len(temp_sorted)//2]
+            temp_sorted = sorted(g_h_history)
+            g_typical_h = temp_sorted[len(temp_sorted)//2]
 
-    # Filtering is always performed relative to the current global_typical_h
-    filter_lower = 0.6 if len(h_history) < 5 else 0.7
+    # Filtering is always performed relative to the current g_typical_h
+    filter_lower = 0.6 if len(g_h_history) < 5 else 0.7
     candidates = []
     for cand in temp_candidates:
-        if global_typical_h > 0:
-            if cand['h'] < global_typical_h * filter_lower or cand['h'] > global_typical_h * 3.0:
+        if g_typical_h > 0:
+            if cand['h'] < g_typical_h * filter_lower or cand['h'] > g_typical_h * 3.0:
                 continue
         candidates.append(cand)
 
@@ -484,7 +509,7 @@ async def do_detect(request: Request):
         count = len(text_boxes)
         area = sum(b['w'] * b['h'] for b in text_boxes)
 
-        return PlainTextResponse(f"{count},{area},{int(global_typical_h)}")
+        return PlainTextResponse(f"{count},{area},{int(g_typical_h)}")
     except Exception as e:
         log(f"[Error] Detect endpoint failed:\n{traceback.format_exc()}")
         return PlainTextResponse("0,0,0")
@@ -493,7 +518,7 @@ async def do_detect(request: Request):
 @app.post("/ocr")
 async def do_ocr(request: Request):
     """Endpoint for performing precision OCR on data read from shared memory"""
-    global ocr
+    global g_ocr
     try:
         data = await request.json()
         w, h = data.get("w"), data.get("h")
@@ -517,7 +542,7 @@ async def do_ocr(request: Request):
         if not text_boxes:
             return PlainTextResponse("")
 
-        recognizer = getattr(ocr, 'paddlex_pipeline', None)
+        recognizer = getattr(g_ocr, 'paddlex_pipeline', None)
         internal_p = getattr(recognizer, '_pipeline', recognizer)
         engine = getattr(internal_p, 'text_rec_model', None)
 
@@ -616,20 +641,7 @@ async def translate(request: Request):
 
         if not text_to_translate: return PlainTextResponse("")
 
-        config = configparser.ConfigParser()
-        config.optionxform = str
-        engine_name = "Gemini"
-
-        if os.path.exists(INI_PATH):
-            for enc in ['utf-16', 'utf-8-sig', 'utf-8']:
-                try:
-                    with open(INI_PATH, 'r', encoding=enc) as f:
-                        config.read_file(f)
-                    # Inheritance logic: Profile Section -> Global Settings -> Default
-                    engine_name = config.get(profile_name, 'ENGINE',
-                                           fallback=config.get('Settings', 'ENGINE', fallback='Gemini'))
-                    break
-                except: continue
+        engine_name = g_engine_name
 
         log(f"[Translate] Request: '{text_to_translate[:30]}...' | Engine: {engine_name}")
 
@@ -677,6 +689,8 @@ def fix_katakana_confusion(text):
     return "".join(chars)
 
 def get_jap_furigana(text):
+    global g_jap_tagger
+
     # Regex pattern for identifying name tags
     name_pattern = r'^([\[［【(（].+?[\]］】)）][:：]?|[^:：\s]{1,12}[:：])\s*'
 
@@ -689,14 +703,19 @@ def get_jap_furigana(text):
         dialogue_body = text
 
     # Morphological analysis and Yomigana processing only for the dialogue body
-    tagger = fugashi.Tagger()
+    if g_jap_tagger is None:
+        try:
+            g_jap_tagger = fugashi.Tagger()
+        except:
+            return text
+
     kanji_pattern = re.compile(r'[\u4e00-\u9faf]') # 한자 범위 체크
 
     result = []
     buf_text = ""
     buf_kana = ""
 
-    for word in tagger(dialogue_body):
+    for word in g_jap_tagger(dialogue_body):
         # Convert Katakana reading information to Hiragana
         kana = ""
         if word.feature.kana:
@@ -722,5 +741,6 @@ def get_jap_furigana(text):
 
 if __name__ == '__main__':
     log("[System] KO Trans FastAPI Server starting on 127.0.0.1:5000...")
+
     # Start FastAPI server using Uvicorn
     uvicorn.run(app, host="127.0.0.1", port=5000, log_level="error")
