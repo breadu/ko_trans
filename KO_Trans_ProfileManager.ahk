@@ -57,6 +57,7 @@ Global DEFAULT_READ_MODE := READ_MODE_ADV
 Global DEFAULT_SHOW_OCR := "1"
 Global DEFAULT_CAPTURE_TARGET := CAPTURE_TARGET_SCREEN
 Global DEFAULT_CAPTURE_PROCESS := "NONE"
+Global DEFAULT_CAPTURE_CLASS := "NONE"
 Global DEFAULT_JAP_YOMIGANA := 0
 Global DEFAULT_JAP_READ_VERTICAL := 0
 
@@ -98,6 +99,7 @@ Global INI_READ_MODE := "READ_MODE"
 Global INI_SHOW_OCR := "SHOW_OCR"
 Global INI_CAPTURE_TARGET := "CAPTURE_TARGET"
 Global INI_CAPTURE_PROCESS := "CAPTURE_PROCESS"
+Global INI_CAPTURE_CLASS := "CAPTURE_CLASS"
 Global INI_JAP_YOMIGANA := "JAP_YOMIGANA"
 Global INI_JAP_READ_VERTICAL := "JAP_READ_VERTICAL"
 
@@ -378,6 +380,7 @@ Manager_CreateProfile() {
 
     IniWrite(DEFAULT_CAPTURE_TARGET, INI_FILE, newName, INI_CAPTURE_TARGET)
     IniWrite(DEFAULT_CAPTURE_PROCESS, INI_FILE, newName, INI_CAPTURE_PROCESS)
+    IniWrite(DEFAULT_CAPTURE_CLASS, INI_FILE, newName, INI_CAPTURE_CLASS)
     IniWrite(DEFAULT_CHAR_DICT_ENABLED, INI_FILE, newName, INI_CHAR_DICT_ENABLED)
     IniWrite(DEFAULT_CHAR_DICT_PATH, INI_FILE, newName, INI_CHAR_DICT_PATH)
     IniWrite(DEFAULT_JAP_YOMIGANA, INI_FILE, newName, INI_JAP_YOMIGANA)
@@ -604,6 +607,7 @@ Manager_ShowEditor(TargetSection) {
 
     currCaptureTarget := IniRead(INI_FILE, TargetSection, INI_CAPTURE_TARGET, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_TARGET, DEFAULT_CAPTURE_TARGET))
     currCaptureProcess := IniRead(INI_FILE, TargetSection, INI_CAPTURE_PROCESS, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_PROCESS, DEFAULT_CAPTURE_PROCESS))
+    currCaptureClass := IniRead(INI_FILE, TargetSection, INI_CAPTURE_CLASS, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_CLASS, DEFAULT_CAPTURE_CLASS))
     currJapYomigana := IniRead(INI_FILE, TargetSection, INI_JAP_YOMIGANA, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_YOMIGANA, DEFAULT_JAP_YOMIGANA))
     currJapReadVertical := IniRead(INI_FILE, TargetSection, INI_JAP_READ_VERTICAL, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_READ_VERTICAL, DEFAULT_JAP_READ_VERTICAL))
 
@@ -677,7 +681,7 @@ Manager_ShowEditor(TargetSection) {
     C.ChkDict := Manager_EditGui.Add("CheckBox", "x35 y" . (yDict + 33) . " cWhite " (currDictEnabled == "1" ? "Checked" : ""), "사용")
 
     Manager_EditGui.SetFont("s9 cWhite")
-    C.TxtDictPath := Manager_EditGui.Add("Text", "x110 y" . (yDict + 35) . " w240 h22 Left +Background1A1A1A", (currDictPath == "" || currDictPath == DEFAULT_CHAR_DICT_PATH ? CHAR_DICT_NOT_SELECTED : currDictPath))
+    C.TxtDictPath := Manager_EditGui.Add("Text", "x110 y" . (yDict + 35) . " w240 h22 Left +Background1A1A1A +0x4000 +0x80", (currDictPath == "" || currDictPath == DEFAULT_CHAR_DICT_PATH ? CHAR_DICT_NOT_SELECTED : currDictPath))
     Manager_EditGui.SetFont("s10 Norm cWhite")
     C.BtnFile := Manager_EditGui.Add("Button", "x365 y" . (yDict + 28) . " w110 h32", "📁 파일 열기")
 
@@ -710,7 +714,7 @@ Manager_ShowEditor(TargetSection) {
         (C.DDLCaptureTarget.Text == "특정 윈도우" && (C.TxtCaptureProcess.Value == CAPTURE_WINDOW_NOT_SELECTED ||
         !WinExist("ahk_exe " . C.TxtCaptureProcess.Value))) ?
         MsgBox("캡처 대상 윈도우가 실행 중이지 않거나 선택되지 않았습니다.", "오류", 4096) :
-        (Manager_EditGui.Hide(), ShowCaptureArea(C.TxtOCR_X, C.TxtOCR_Y, C.TxtOCR_W, C.TxtOCR_H, themeColor, C.DDLCaptureTarget.Text, C.TxtCaptureProcess.Value))
+        (Manager_EditGui.Hide(), ShowCaptureArea(C.TxtOCR_X, C.TxtOCR_Y, C.TxtOCR_W, C.TxtOCR_H, themeColor, C.DDLCaptureTarget.Text, C.TxtCaptureProcess.Value, C.TxtCaptureClass.Value))
     ))
 
     Manager_EditGui.Add("Text", "x45 y175", "오버레이 영역:")
@@ -774,17 +778,19 @@ Manager_ShowEditor(TargetSection) {
     C.ChkShowOcr := Manager_EditGui.Add("CheckBox", "x270 y395 cWhite " (currShowOcr == "1" ? "Checked" : ""), "OCR 결과 표시")
 
     Manager_EditGui.SetFont("s10 Norm cWhite")
-    Manager_EditGui.Add("GroupBox", "x30 y440 w450 h65 cGray", "캡처 대상 설정")
+    Manager_EditGui.Add("GroupBox", "x30 y440 w450 h70 cGray", "캡처 대상 설정")
     Manager_EditGui.SetFont("s9 Norm cWhite")
     Manager_EditGui.Add("Text", "x45 y470", "캡처 대상:")
     C.DDLCaptureTarget := Manager_EditGui.Add("DropDownList", "x110 y467 w90 Choose" (currCaptureTarget == CAPTURE_TARGET_WINDOW ? 2 : (currCaptureTarget == CAPTURE_TARGET_CLIPBOARD ? 3 : 1)), ["전체 화면", "특정 윈도우", "클립보드"])
     processName := (currCaptureProcess ==  DEFAULT_CAPTURE_PROCESS ? CAPTURE_WINDOW_NOT_SELECTED :  currCaptureProcess)
-    C.TxtCaptureProcess := Manager_EditGui.Add("Text", "x210 y470 w120 cWhite", (currCaptureTarget == CAPTURE_TARGET_SCREEN ? "전체 화면" : (currCaptureTarget == CAPTURE_TARGET_CLIPBOARD ? "클립보드" : processName)))
+    C.TxtCaptureProcess := Manager_EditGui.Add("Text", "x210 y462 w120 h20 cWhite +0x4000 +0x80", (currCaptureTarget == CAPTURE_TARGET_SCREEN ? "전체 화면" : (currCaptureTarget == CAPTURE_TARGET_CLIPBOARD ? "클립보드" : processName)))
+    className := (currCaptureClass ==  DEFAULT_CAPTURE_CLASS ? "" :  currCaptureClass)
+    C.TxtCaptureClass := Manager_EditGui.Add("Text", "x210 y482 w120 h20 cGray +0x4000 +0x80", className)
     if (C.TxtCaptureProcess.Value == CAPTURE_WINDOW_NOT_SELECTED) {
         C.TxtCaptureProcess.SetFont("cRed")
     }
 
-    C.BtnSelectWindow := Manager_EditGui.Add("Button", "x340 y462 w120 h32", "윈도우 선택")
+    C.BtnSelectWindow := Manager_EditGui.Add("Button", "x340 y465 w120 h32", "윈도우 선택")
 
     ; Dynamic control of window selection based on capture mode
     C.BtnSelectWindow.Enabled := (currCaptureTarget == CAPTURE_TARGET_WINDOW)
@@ -792,21 +798,25 @@ Manager_ShowEditor(TargetSection) {
         (ctrl.Text == "전체 화면") ? (
             C.TxtCaptureProcess.Value := "전체 화면",
             C.TxtCaptureProcess.SetFont("cWhite"),
+            C.TxtCaptureClass.Value := "",
             C.BtnSelectWindow.Enabled := false,
             captureTarget := CAPTURE_TARGET_SCREEN
         ) : (ctrl.Text == "클립보드") ? (
             C.TxtCaptureProcess.Value := "클립보드",
             C.TxtCaptureProcess.SetFont("cWhite"),
+            C.TxtCaptureClass.Value := "",
             C.BtnSelectWindow.Enabled := false,
             captureTarget := CAPTURE_TARGET_CLIPBOARD
         ) : (
             C.BtnSelectWindow.Enabled := true,
             (currCaptureProcess == DEFAULT_CAPTURE_PROCESS) ? (
                 C.TxtCaptureProcess.Value := CAPTURE_WINDOW_NOT_SELECTED,
-                C.TxtCaptureProcess.SetFont("cRed")
+                C.TxtCaptureProcess.SetFont("cRed"),
+                C.TxtCaptureClass.Value := ""
             ) : (
                 C.TxtCaptureProcess.Value := currCaptureProcess,
-                C.TxtCaptureProcess.SetFont("cWhite")
+                C.TxtCaptureProcess.SetFont("cWhite"),
+                C.TxtCaptureClass.Value := currCaptureClass
             ),
             captureTarget := CAPTURE_TARGET_WINDOW
         ),
@@ -823,21 +833,29 @@ Manager_ShowEditor(TargetSection) {
         )
     ))
     ; Call StartWindowPicker() when Select Window button is clicked
-    C.BtnSelectWindow.OnEvent("Click", (*) => (pName := StartWindowPicker(), (pName != "") ? C.TxtCaptureProcess.Value := pName : "", C.TxtCaptureProcess.SetFont("cWhite")))
+    C.BtnSelectWindow.OnEvent("Click", (*) => (
+        pickData := StartWindowPicker(),
+        (pickData != "") ? (
+            parts := StrSplit(pickData, "|"),
+            C.TxtCaptureClass.Value := parts[1],
+            C.TxtCaptureProcess.Value := parts[2],
+            C.TxtCaptureProcess.SetFont("cWhite")
+        ) : ""
+    ))
 
     Manager_EditGui.SetFont("s10 cWhite")
-    Manager_EditGui.Add("Text", "x40 y525", "투명도:")
-    C.SliderOpacity := Manager_EditGui.Add("Slider", "x110 y525 w310 Range0-255", currOpacity)
-    C.TextOpacityVal := Manager_EditGui.Add("Text", "x430 y530 w50 Right c1E90FF", Round((currOpacity/255)*100) "%")
+    Manager_EditGui.Add("Text", "x40 y530", "투명도:")
+    C.SliderOpacity := Manager_EditGui.Add("Slider", "x110 y530 w310 Range0-255", currOpacity)
+    C.TextOpacityVal := Manager_EditGui.Add("Text", "x430 y535 w50 Right c1E90FF", Round((currOpacity/255)*100) "%")
     C.SliderOpacity.OnEvent("Change", (*) => C.TextOpacityVal.Value := Round((C.SliderOpacity.Value/255)*100) "%")
-    Manager_EditGui.Add("Text", "x40 y565", "글꼴 크기:")
-    C.SliderFont := Manager_EditGui.Add("Slider", "x110 y565 w310 Range10-50", currFontSize)
-    C.TextFontVal := Manager_EditGui.Add("Text", "x430 y570 w50 Right c1E90FF", C.SliderFont.Value "px")
+    Manager_EditGui.Add("Text", "x40 y570", "글꼴 크기:")
+    C.SliderFont := Manager_EditGui.Add("Slider", "x110 y570 w310 Range10-50", currFontSize)
+    C.TextFontVal := Manager_EditGui.Add("Text", "x430 y575 w50 Right c1E90FF", C.SliderFont.Value "px")
     C.SliderFont.OnEvent("Change", (*) => C.TextFontVal.Value := C.SliderFont.Value "px")
-    Manager_EditGui.Add("Text", "x40 y605", "글꼴 색상:")
+    Manager_EditGui.Add("Text", "x40 y610", "글꼴 색상:")
 
-    C.BtnColor := Manager_EditGui.Add("Button", "x120 y598 w100 h30", "🎨 색상 선택")
-    C.TxtColorVal := Manager_EditGui.Add("Text", "x230 y605 w100 c" . currFontColor, currFontColor)
+    C.BtnColor := Manager_EditGui.Add("Button", "x120 y603 w100 h30", "🎨 색상 선택")
+    C.TxtColorVal := Manager_EditGui.Add("Text", "x230 y610 w100 c" . currFontColor, currFontColor)
     C.BtnColor.OnEvent("Click", (*) => (
         newColor := Manager_ChooseColor(C.TxtColorVal.Value),
         (newColor != "") ? (C.TxtColorVal.Value := newColor, C.TxtColorVal.SetFont("c" . newColor)) : ""
@@ -847,13 +865,13 @@ Manager_ShowEditor(TargetSection) {
     ; Bottom UI Controls
     ; =========================================================================
     Tab.UseTab()
-    BtnBack := Manager_EditGui.Add("Button", "x20 y660 w110 h40", "⬅ 뒤로")
+    BtnBack := Manager_EditGui.Add("Button", "x20 y665 w110 h40", "⬅ 뒤로")
     BtnBack.OnEvent("Click", (*) => (Manager_EditGui.Destroy(), Manager_EditGui := 0, ShowGateway()))
 
-    BtnReset := Manager_EditGui.Add("Button", "x195 y660 w110 h40", "🔄 초기화")
+    BtnReset := Manager_EditGui.Add("Button", "x195 y665 w110 h40", "🔄 초기화")
     BtnReset.OnEvent("Click", (*) => Manager_ResetToDefault(TargetSection, C))
 
-    BtnApply := Manager_EditGui.Add("Button", "x370 y660 w110 h40 Default", "✔ 적용")
+    BtnApply := Manager_EditGui.Add("Button", "x370 y665 w110 h40 Default", "✔ 적용")
     BtnApply.OnEvent("Click", (*) => SaveAndApply(TargetSection,
         C.TxtOCR_X.Value, C.TxtOCR_Y.Value, C.TxtOCR_W.Value, C.TxtOCR_H.Value,
         C.TxtOV_X.Value, C.TxtOV_Y.Value, C.TxtOV_W.Value, C.TxtOV_H.Value,
@@ -866,10 +884,10 @@ Manager_ShowEditor(TargetSection) {
         (TargetSection==PROFILE_SETTINGS?C.EditGemini.Value:""),
         (TargetSection==PROFILE_SETTINGS?C.EditOpenAI.Value:""),
         C.EditOCRStartTime.Value, C.ChkAutoDetect.Value, C.DDLReadMode.Text, C.ChkShowOcr.Value,
-        C.DDLCaptureTarget.Text, C.TxtCaptureProcess.Value
+        C.DDLCaptureTarget.Text, C.TxtCaptureProcess.Value, C.TxtCaptureClass.Value
     ))
 
-    Manager_EditGui.Show("w510 h725")
+    Manager_EditGui.Show("w510 h740")
     LogDebug("[Manager] Editor UI shown for profile: " . TargetSection)
 }
 
@@ -882,7 +900,7 @@ StartWindowPicker() {
     hCursor := DllCall("LoadCursor", "Ptr", 0, "Int", 32515, "Ptr")
     DllCall("SetSystemCursor", "Ptr", hCursor, "Int", 32512)
 
-    resultProcess := ""
+    resultData := ""
     Loop {
         ToolTip("번역할 게임 화면을 클릭해 주세요! (ESC: 취소)")
 
@@ -890,8 +908,10 @@ StartWindowPicker() {
             KeyWait("LButton")
             MouseGetPos(,, &targetHwnd)
             try {
-                resultProcess := WinGetProcessName("ahk_id " targetHwnd)
-                LogDebug("[Manager] Window picker selected: " . resultProcess . " (HWND: " . targetHwnd . ")")
+                pName := WinGetProcessName("ahk_id " targetHwnd)
+                cName := WinGetClass("ahk_id " targetHwnd)
+                resultData := cName . "|" . pName
+                LogDebug("[Manager] Window picker selected: " . resultData)
             }
             break
         }
@@ -911,7 +931,7 @@ StartWindowPicker() {
     Manager_EditGui.Opt("-Disabled")
     Manager_EditGui.Show()
 
-    return resultProcess
+    return resultData
 }
 
 Manager_ChooseColor(DefaultColor := "FFFFFF") {
@@ -1022,7 +1042,7 @@ ShowProfileSelector() {
 ; ---------------------------------------------------------
 ; Drag-to-select OCR area with WGC window mapping support
 ; ---------------------------------------------------------
-ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Process) {
+ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Process, Class) {
     global CaptureAreaGui, btnClose, Manager_EditGui
 
     if IsSet(Overlay)
@@ -1032,8 +1052,12 @@ ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Pro
     tVisibleX := 0, tVisibleY := 0
 
     ; Calculate correction values when in specific window capture mode
-    if (Mode == "특정 윈도우" && WinExist("ahk_exe " . Process)) {
-        hwndTarget := WinExist("ahk_exe " . Process)
+    targetCriteria := (Class != "" && Class != DEFAULT_CAPTURE_CLASS)
+                    ? "ahk_class " . Class . " ahk_exe " . Process
+                    : "ahk_exe " . Process
+
+    if (Mode == "특정 윈도우" && WinExist(targetCriteria)) {
+        hwndTarget := WinExist(targetCriteria)
         if (WinGetMinMax("ahk_id " hwndTarget) == -1)
             WinRestore("ahk_id " hwndTarget)
 
@@ -1298,7 +1322,7 @@ Manager_IsValidPath(FilePath) {
 ; Saves configuration and notifies Python server if critical settings changed
 SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverlayW, valOverlayH, valLang, valEngine, valModel,
     valOpacity, valFontSize, valFontColor, valDictEnabled, valDictPath, valJapYomigana, valJapReadVertical, valKey, valMouse, valPad,
-    valGemini, valOpenAI, valOCRStartTime, valAutoDetect, valReadMode, valShowOcr, valCaptureTarget, valCaptureProcess) {
+    valGemini, valOpenAI, valOCRStartTime, valAutoDetect, valReadMode, valShowOcr, valCaptureTarget, valCaptureProcess, valCaptureClass) {
     Global INI_FILE, Manager_EditGui
 
     valOCRStartTime := Integer(StrReplace(String(valOCRStartTime), ",", ""))
@@ -1315,6 +1339,7 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
 
     if (valCaptureTarget == CAPTURE_TARGET_SCREEN || valCaptureTarget == CAPTURE_TARGET_CLIPBOARD || valCaptureProcess == CAPTURE_WINDOW_NOT_SELECTED) {
         valCaptureProcess := DEFAULT_CAPTURE_PROCESS
+        valCaptureClass := DEFAULT_CAPTURE_CLASS
     }
 
     if (valCaptureTarget == CAPTURE_TARGET_WINDOW && valCaptureProcess == DEFAULT_CAPTURE_PROCESS) {
@@ -1386,6 +1411,7 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         IniWrite(valShowOcr, INI_FILE, Section, INI_SHOW_OCR)
         IniWrite(valCaptureTarget, INI_FILE, Section, INI_CAPTURE_TARGET)
         IniWrite(valCaptureProcess, INI_FILE, Section, INI_CAPTURE_PROCESS)
+        IniWrite(valCaptureClass, INI_FILE, Section, INI_CAPTURE_CLASS)
 
         if (Section == PROFILE_SETTINGS) {
             IniWrite(valGemini, INI_FILE, PROFILE_SETTINGS, INI_GEMINI_API_KEY)

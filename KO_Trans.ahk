@@ -237,6 +237,7 @@ InitializeSettings() {
         IniWrite(DEFAULT_SHOW_OCR, INI_FILE, PROFILE_SETTINGS, INI_SHOW_OCR)
         IniWrite(DEFAULT_CAPTURE_TARGET, INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_TARGET)
         IniWrite(DEFAULT_CAPTURE_PROCESS, INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_PROCESS)
+        IniWrite(DEFAULT_CAPTURE_CLASS, INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_CLASS)
 
         ; Dictionary
         IniWrite(DEFAULT_CHAR_DICT_ENABLED, INI_FILE, PROFILE_SETTINGS, INI_CHAR_DICT_ENABLED)
@@ -299,6 +300,7 @@ LoadProfileSettings(forceProc := "") {
 
     Global CAPTURE_TARGET  := IniRead(INI_FILE, targetProc, INI_CAPTURE_TARGET, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_TARGET, DEFAULT_CAPTURE_TARGET))
     Global CAPTURE_PROCESS := IniRead(INI_FILE, targetProc, INI_CAPTURE_PROCESS, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_PROCESS, DEFAULT_CAPTURE_PROCESS))
+    Global CAPTURE_CLASS := IniRead(INI_FILE, targetProc, INI_CAPTURE_CLASS, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CAPTURE_CLASS, DEFAULT_CAPTURE_CLASS))
 
     Global SHOW_OCR := IniRead(INI_FILE, targetProc, INI_SHOW_OCR, IniRead(INI_FILE, PROFILE_SETTINGS, INI_SHOW_OCR, DEFAULT_SHOW_OCR))
     Global READ_MODE := IniRead(INI_FILE, targetProc, INI_READ_MODE, IniRead(INI_FILE, PROFILE_SETTINGS, INI_READ_MODE, DEFAULT_READ_MODE))
@@ -516,7 +518,10 @@ LookupDictionary() {
     else
     {
         ; Standard OCR capture for other windows
-        hwndTarget := (CAPTURE_TARGET == CAPTURE_TARGET_WINDOW) ? WinExist("ahk_exe " . CAPTURE_PROCESS) : 0
+        targetCriteria := (CAPTURE_CLASS != "" && CAPTURE_CLASS != DEFAULT_CAPTURE_CLASS)
+                        ? "ahk_class " . CAPTURE_CLASS . " ahk_exe " . CAPTURE_PROCESS
+                        : "ahk_exe " . CAPTURE_PROCESS
+        hwndTarget := (CAPTURE_TARGET == CAPTURE_TARGET_WINDOW) ? WinExist(targetCriteria) : 0
         if (CAPTURE_TARGET == CAPTURE_TARGET_WINDOW && (!hwndTarget || WinGetMinMax("ahk_id " hwndTarget) == -1)) {
             BigToolTip("⚠️ 대상 윈도우가 없습니다: " . CAPTURE_PROCESS)
             return
@@ -967,7 +972,10 @@ TriggerOCRForTranslate() {
         Loop {
             hwndTarget := 0
             if (CAPTURE_TARGET == CAPTURE_TARGET_WINDOW) {
-                hwndTarget := WinExist("ahk_exe " . CAPTURE_PROCESS)
+                targetCriteria := (CAPTURE_CLASS != "" && CAPTURE_CLASS != DEFAULT_CAPTURE_CLASS)
+                                ? "ahk_class " . CAPTURE_CLASS . " ahk_exe " . CAPTURE_PROCESS
+                                : "ahk_exe " . CAPTURE_PROCESS
+                hwndTarget := WinExist(targetCriteria)
 
                 ; Check if target window exists and is not minimized
                 if (!hwndTarget || WinGetMinMax("ahk_id " hwndTarget) == -1) {
@@ -1414,7 +1422,10 @@ WatchArea() {
 
     oldContext := DllCall("SetThreadDpiAwarenessContext", "ptr", -4, "ptr")
 
-    hwndTarget := (CAPTURE_TARGET == CAPTURE_TARGET_WINDOW) ? WinExist("ahk_exe " . CAPTURE_PROCESS) : 0
+    targetCriteria := (CAPTURE_CLASS != "" && CAPTURE_CLASS != DEFAULT_CAPTURE_CLASS)
+                    ? "ahk_class " . CAPTURE_CLASS . " ahk_exe " . CAPTURE_PROCESS
+                    : "ahk_exe " . CAPTURE_PROCESS
+    hwndTarget := (CAPTURE_TARGET == CAPTURE_TARGET_WINDOW) ? WinExist(targetCriteria) : 0
     if (hwndTarget && WinGetMinMax("ahk_id " hwndTarget) == -1)
         return
 
