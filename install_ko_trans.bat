@@ -90,7 +90,7 @@ goto ASK_GPU
 :INSTALL_GPU
 echo GPU 버전 라이브러리 설치를 시작합니다...
 %VENV_PYTHON% -m pip uninstall -y paddlepaddle paddlepaddle-gpu onnxruntime onnxruntime-gpu
-%VENV_PYTHON% -m pip install paddlepaddle-gpu==3.2.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
+%VENV_PYTHON% -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
 %VENV_PYTHON% -m pip install paddleocr
 %VENV_PYTHON% -m pip uninstall -y onnxruntime
 %VENV_PYTHON% -m pip install onnxruntime-gpu

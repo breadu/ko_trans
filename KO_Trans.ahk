@@ -54,6 +54,7 @@ Global CursorExclusionRect := {x1: -1, y1: -1, x2: -1, y2: -1}
 Global SplashGui := unset
 Global lastHash := ""
 Global WM_LBUTTONDOWN := 0x0201
+Global LastTextROI := {x:0, y:0, w:0, h:0}
 
 A_MenuMaskKey := "vkFF"  ; Prevent Ctrl key interference during hotkey execution
 
@@ -697,7 +698,7 @@ CapturePhysicalScreen(x, y, w, h, hwnd := 0, forceFresh := false) {
 
                 Gdip_UnlockBits(pFullBitmap, &BitmapData)
 
-                ; [Fix] 계산된 오프셋을 적용하여 크롭 영역을 실제 가시 영역과 일치시킴
+                ; Apply calculated offset to align crop area with the actual visible area
                 ix := Integer(x) + offsetX
                 iy := Integer(y) + offsetY
                 iw := Integer(w)
@@ -749,7 +750,7 @@ GetFurigana(text) {
             return ""
         }
         http := ComObject("WinHttp.WinHttpRequest.5.1")
-        http.SetTimeouts(500, 500, 500, 1000) ; 로컬 작업이라 타임아웃을 아주 짧게!
+        http.SetTimeouts(500, 500, 500, 1000)
         http.Open("POST", FURIGANA_ENDPOINT, false)
         http.SetRequestHeader("Content-Type", "application/json")
 
@@ -948,6 +949,8 @@ TransOverlay_Size(thisGui, minMax, width, height) {
 TriggerOCRForTranslate() {
     Global Overlay, OCR_X, OCR_Y, OCR_W, OCR_H, READ_MODE, OCR_START_TIME, ENGINE_DEVICE_MODE
     Global CAPTURE_TARGET, CAPTURE_TARGET_CLIPBOARD, JAP_YOMIGANA, OCR_LANG, SHOW_OCR
+    Global LastTextROI
+    static FailCount := 0
     ocrResult := ""
 
     if (!Overlay.IsActive || CAPTURE_TARGET == CAPTURE_TARGET_CLIPBOARD) {
@@ -1104,8 +1107,25 @@ TriggerOCRForTranslate() {
                     }
 
                     LogDebug("[OCR] Request Sent. Target: " . (CAPTURE_TARGET == 0 ? "Screen" : "Process: " . CAPTURE_PROCESS))
-                    ocrResult := http.ResponseText
-                    ocrResult := Trim(ocrResult)
+
+                    ; Parse response containing ROI coordinates separated by a pipe (|)
+                    rawResponse := Trim(http.ResponseText)
+                    if (InStr(rawResponse, "|")) {
+                        parts := StrSplit(rawResponse, "|")
+                        coords := StrSplit(parts[1], ",")
+                        LastTextROI := {x: coords[1], y: coords[2], w: coords[3], h: coords[4]}
+                        ocrResult := parts[2]
+                        FailCount := 0 ; Reset fail count on success
+                    } else {
+                        ocrResult := rawResponse
+                        ; Automatic ROI Reset: If no text is found 5 times, reset ROI to scan the whole area
+                        FailCount++
+                        if (FailCount >= 5) {
+                            LastTextROI := {x:0, y:0, w:0, h:0}
+                            FailCount := 0
+                            LogDebug("[ROI] Text lost. Resetting ROI to global scan.")
+                        }
+                    }
 
                     ; OCR Test Mode Logic
                     if (OCR_TEST_MODE) {
@@ -1138,7 +1158,7 @@ TriggerOCRForTranslate() {
                                 Loop 15 {
                                     Sleep(300)
                                     newHash := GetAreaHash(OCR_X, OCR_Y, OCR_W, OCR_H, hwndTarget)
-                                    if (Abs(newHash - currentHash) > 10000000) {
+                                    if (Abs(newHash - currentHash) > 500000) {
                                         LogDebug("[OCR] Visual change detected. Render wait...")
                                         Sleep(1800)
                                         break
@@ -1458,24 +1478,63 @@ WatchArea() {
 
 ; Fast grid-based hashing of the target screen area
 GetAreaHash(x, y, w, h, hwnd := 0) {
+    Global LastTextROI, OCR_LANG, JAP_READ_VERTICAL
     oldContext := DllCall("SetThreadDpiAwarenessContext", "ptr", -4, "ptr")
 
     pBitmap := CapturePhysicalScreen(x, y, w, h, hwnd)
+    if (pBitmap <= 0) {
+        DllCall("SetThreadDpiAwarenessContext", "ptr", oldContext, "ptr")
+        return 0
+    }
     Gdip_GetImageDimensions(pBitmap, &width, &height)
 
     hash := 0
-    ; Sample 800 points (40x20 grid) for visual fingerprinting
+    ; Sample points for visual fingerprinting
     if !Gdip_LockBits(pBitmap, 0, 0, width, height, &Stride, &Scan0, &Bdata) {
-        Loop 40 {
-            stepX := Integer((width / 41) * A_Index)
-            Loop 20 {
-                stepY := Integer((height / 21) * A_Index)
-                pix := NumGet(Scan0, (stepY * Stride) + (stepX * 4), "UInt")
+        ; ROI-Focused High-Density Hashing
+        ; If a text area is already known, perform a dense scan there for thin fonts
+        if (LastTextROI.w > 0) {
+            isVert := (OCR_LANG == "jap" && JAP_READ_VERTICAL == "1")
+            ; [Increased Horizontal Grid Density: 40x20 instead of 30x15 to match global scan precision
+            gridX := isVert ? 8 : 20
+            gridY := isVert ? 30 : 10
 
-                ; Apply "Fuzzy Hashing" by masking out lower 5 bits of each RGB channel
-                ; This ignores micro-noise and dithering for a more stable hash value
-                stablePix := pix & 0xE0E0E0
-                hash += stablePix
+            Loop gridX {
+                curX := LastTextROI.x + Integer((LastTextROI.w / (gridX + 1)) * A_Index)
+                Loop gridY {
+                    curY := LastTextROI.y + Integer((LastTextROI.h / (gridY + 1)) * A_Index)
+
+                    ; Boundary safety check
+                    if (curX >= 0 && curX < width && curY >= 0 && curY < height) {
+                        pix := NumGet(Scan0, (curY * Stride) + (curX * 4), "UInt")
+                        ; Using 0xF0 mask for higher sensitivity to micro-changes in font edges
+                        hash += (pix & 0xC0C0C0)
+                    }
+                }
+            }
+
+            ; Sparse 10x10 background scan to detect global UI changes
+            Loop 6 {
+                gX := Integer((width / 7) * A_Index)
+                Loop 6 {
+                    gY := Integer((height / 7) * A_Index)
+                    pix := NumGet(Scan0, (gY * Stride) + (gX * 4), "UInt")
+                    hash += (pix & 0x808080)
+                }
+            }
+        } else {
+            ; Sample 800 points (40x20 grid) for visual fingerprinting
+            Loop 40 {
+                stepX := Integer((width / 41) * A_Index)
+                Loop 20 {
+                    stepY := Integer((height / 21) * A_Index)
+                    pix := NumGet(Scan0, (stepY * Stride) + (stepX * 4), "UInt")
+
+                    ; Apply "Fuzzy Hashing" by masking out lower 5 bits of each RGB channel
+                    ; This ignores micro-noise and dithering for a more stable hash value
+                    stablePix := pix & 0xE0E0E0
+                    hash += stablePix
+                }
             }
         }
         Gdip_UnlockBits(pBitmap, &Bdata)

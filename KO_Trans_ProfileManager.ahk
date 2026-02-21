@@ -243,7 +243,10 @@ ShowGateway() {
 
     Manager_Gateway.Show("w540 h425")
 
-    BtnStart.Focus()
+    try {
+        if IsSet(BtnStart)
+            BtnStart.Focus()
+    }
 
     LogDebug("[Manager] Gateway UI opened. Active Profile: " . CURRENT_PROFILE)
 }
@@ -1067,18 +1070,15 @@ ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Pro
         global CaptureAreaGui
 
         ; Retrieve accurate client area dimensions
-        WinGetPos(&outX, &outY, &w, &h, CaptureAreaGui.Hwnd)
-        WinGetClientPos(,, &outW, &outH, CaptureAreaGui.Hwnd)
-
-        ; Restore the original screen coordinates by adding back the border offsets we subtracted earlier.
-        ; This ensures that 'Saved X' exactly matches the 'Starting X' if the window hasn't moved.
-        outX += borderX
-        outY += borderY
+        WinGetClientPos(&cX, &cY, &outW, &outH, CaptureAreaGui.Hwnd)
 
         ; In specific window mode, we must subtract the visible starting point of that window.
         if (Mode == "특정 윈도우" && tVisibleX != 0) {
-            outX -= tVisibleX
-            outY -= tVisibleY
+            outX := cX - tVisibleX
+            outY := cY - tVisibleY
+        } else {
+            outX := cX
+            outY := cY
         }
 
         Target_X.Value := outX, Target_Y.Value := outY, Target_W.Value := outW, Target_H.Value := outH

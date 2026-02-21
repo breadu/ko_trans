@@ -57,7 +57,7 @@ g_active_profile = "Settings"
 g_current_device = "Unknown"
 g_typical_h = -1.0
 g_h_history = []
-g_last_crop_pos = {'x': -1, 'y': -1}     # Store top-left coordinates of the last successful crop to improve continuity
+g_last_crop_pos = {'x': -1, 'y': -1}
 
 MAX_HISTORY = 10
 INI_PATH = path_util.INI_PATH
@@ -110,7 +110,6 @@ def init_ocr_engine():
             g_engine_name = config.get(active_profile, 'ENGINE',
                                      fallback=config.get('Settings', 'ENGINE', fallback='Gemini'))
 
-            # Read LANG for the specific profile; fallback to global Settings if missing
             lang_from_ini = config.get(active_profile, 'LANG',
                                      fallback=config.get('Settings', 'LANG', fallback='eng'))
 
@@ -134,7 +133,7 @@ def init_ocr_engine():
             except Exception as e:
                 log(f"[Error] Failed to initialize fugashi: {e}")
     else:
-        # 영어 모드로 전환 시 메모리 절약을 위해 태거 해제 (선택 사항)
+        # Release tagger to save memory when switching to English mode
         g_jap_tagger = None
 
     # Map profile language to PaddleOCR language codes
@@ -172,7 +171,7 @@ async def read_shm_with_flag(w, h):
     """Safely reads image from shared memory by checking status flags (0:Idle, 1:Writing, 2:Ready)"""
     img_size = w * h * 4
 
-    # 1. Check flag (wait up to 100ms for data readiness)
+    # Check flag (wait up to 100ms for data readiness)
     success = False
     last_flag = -1
     for _ in range(10):
@@ -189,10 +188,10 @@ async def read_shm_with_flag(w, h):
             log(f"[SHM] ⚠️ Flag Timeout. Current Flag: {last_flag} (Expected: 2)")
         return None
 
-    # 2. Read raw pixel data (pointer is at offset 1 after reading flag)
+    # Read raw pixel data (pointer is at offset 1 after reading flag)
     raw_data = shm_obj.read(img_size)
 
-    # 3. Reset flag to 0 (Idle) after reading to allow next write
+    # Reset flag to 0 (Idle) after reading to allow next write
     shm_obj.seek(0)
     shm_obj.write(b'\x00')
 
@@ -233,17 +232,27 @@ async def reload_engine():
         raise HTTPException(status_code=500, detail=str(e))
 
 def select_best_adv_group(groups, res_img, target_w, target_h):
-    """ADV Mode Selection Logic: Picks the best dialogue box candidate based on scoring."""
+    """ADV Mode Selection Logic: Strictly transposes horizontal scoring to vertical mode."""
+    is_vert = is_jap_read_vertical()
+
     def calculate_score(g, target_img):
         num_boxes = len(g)
-        avg_ar = sum(c['ar'] for c in g) / float(num_boxes)
-        total_width = sum(c['box'][2] for c in g)
+
+        # Axis Swap: Height for vertical, Width for horizontal
+        metric_dim = sum(c['box'][3] for c in g) if is_vert else sum(c['box'][2] for c in g)
+
+        # Aspect Ratio Swap: Vertical favors tall (H/W), Horizontal favors wide (W/H)
+        if is_vert:
+            avg_ar = sum((c['h'] / c['w']) if c['w'] > 0 else 0 for c in g) / float(num_boxes)
+        else:
+            avg_ar = sum(c['ar'] for c in g) / float(num_boxes)
 
         total_brightness = 0
         for c in g:
             bx, by, bw, bh = c['box']
             roi = target_img[by:by+bh, bx:bx+bw]
-            if roi.size > 0: total_brightness += np.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY))
+            if roi.size > 0:
+                total_brightness += np.mean(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY))
         darkness = (255 - (total_brightness / num_boxes)) / 255.0
 
         avg_cx = sum(c['box'][0] + c['box'][2]/2 for c in g) / float(num_boxes)
@@ -256,7 +265,8 @@ def select_best_adv_group(groups, res_img, target_w, target_h):
             dist = math.sqrt((group_min_x - g_last_crop_pos['x'])**2 + (group_min_y - g_last_crop_pos['y'])**2)
             pos_weight = 1.0 + (5.0 * math.exp(-dist / 100.0))
 
-        return (num_boxes ** 2) * total_width * avg_ar * center_bias * darkness * pos_weight
+        # Use the same scoring logic as horizontal, just with swapped metrics
+        return (num_boxes ** 2) * metric_dim * avg_ar * center_bias * darkness * pos_weight
 
     return max(groups, key=lambda g: calculate_score(g, res_img))
 
@@ -271,14 +281,15 @@ def is_jap_read_vertical():
 def get_smart_crop(img, update_history=True):
     """
     Common detection flow for both ADV and NVL modes.
-    Uses CRAFT to find candidates, then branches processing based on MODE.
+    Directly transposes existing horizontal logic for Japanese vertical reading.
     """
     global g_typical_h, g_h_history, g_session
     if img is None:
         log(f"[Error] get_smart_crop: Image is None")
-        return None, []
+        return None, [], -1.0
 
     orig_h, orig_w = img.shape[:2]
+    is_vertical = is_jap_read_vertical()
 
     # Smart Scaling: Limit long dimension to 960px for optimal detection performance
     MAX_DIM = 960
@@ -304,12 +315,17 @@ def get_smart_crop(img, update_history=True):
     outputs = g_session.run(None, {g_session.get_inputs()[0].name: blob})
     score_text = outputs[0][0, 0, :, :] if outputs[0].shape[1] in [1, 2] else outputs[0][0, :, :, 0]
 
-    _, mask = cv2.threshold(score_text, 0.3, 255, cv2.THRESH_BINARY)
-    mask = cv2.dilate(mask.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_RECT, (5, 3)), iterations=6)
+    _, mask = cv2.threshold(score_text, 0.2, 255, cv2.THRESH_BINARY)
+
+    # Kernel Transpose: (5,3) for horizontal, (1,9) for vertical connectivity to avoid hurigana
+    k_size = (1, 9) if is_vertical else (5, 3)
+    dilate_iter = 8 if is_vertical else 6
+
+    mask = cv2.dilate(mask.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_RECT, k_size), iterations=dilate_iter)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     if not contours:
-        return img, []
+        return img, [], -1.0
 
     temp_candidates = []
     img_area = target_w * target_h
@@ -317,31 +333,33 @@ def get_smart_crop(img, update_history=True):
         x, y, w, h = cv2.boundingRect(cnt)
         if (w * h) < (img_area * 0.0001): continue
         aspect_ratio = w / float(h) if h > 0 else 0
-        if aspect_ratio < 0.5: continue
 
-        # Filter candidates based on g_typical_h (learned dialogue height)
+        # Aspect Ratio Filter Transpose: Filter out flat boxes in vertical, thin in horizontal
+        if is_vertical:
+            if aspect_ratio > 0.5: continue
+            # Filter out extremely thin fragments (noise/small yomigana)
+            if w < 5: continue
+        else:
+            if aspect_ratio < 0.5: continue
+
+
+        # Metric Learning Transpose: width (w) for vertical columns, height (h) for horizontal lines
+        metric_val = w if is_vertical else h
         if g_typical_h > 0:
-            # Filter out tiny regions (probable noise)
-            if h < g_typical_h * 0.7:
+            # Relaxed lower bound for vertical to catch thinner font columns or names
+            lower_bound = g_typical_h * 0.4 if is_vertical else g_typical_h * 0.7
+            if metric_val < lower_bound or metric_val > g_typical_h * 2.5:
                 continue
 
-            # Filter out oversized regions (background or giant UI)
-            if h > g_typical_h * 2.0:
-                continue
-
-        # Include width to prevent downstream errors
         temp_candidates.append({'cnt': cnt, 'box': (x, y, w, h), 'ar': aspect_ratio, 'h': h, 'w': w})
 
     if not temp_candidates:
-        return img, []
+        return img, [], -1.0
 
-    # Apply horizontal noise filtering only for single-box detections
-    if len(temp_candidates) == 1 and g_typical_h > 0:
+    # Apply noise filtering only for horizontal mode (Preserved as is)
+    if not is_vertical and len(temp_candidates) == 1 and g_typical_h > 0:
         cand = temp_candidates[0]
-        single_w = cand['w']
-        single_x = cand['box'][0]
-
-        # Check if the box is positioned near the starting X-coordinate of previous dialogues
+        single_w, single_x = cand['w'], cand['box'][0]
         is_near_start = False
         if g_last_crop_pos['x'] != -1:
             # Threshold: 1.5x character height
@@ -350,143 +368,177 @@ def get_smart_crop(img, update_history=True):
 
         # Ignore if the box is short AND not near the starting X line (likely random UI noise)
         if single_w < g_typical_h * 5.0 and not is_near_start:
-            return img, []
+            return img, [], -1.0
+
+    if is_vertical and len(temp_candidates) == 1 and g_typical_h > 0:
+        cand = temp_candidates[0]
+        single_y = cand['box'][1]
+
+        if g_last_crop_pos['y'] != -1:
+            # Relaxed Y-distance threshold from 5.0 to 10.0 to allow name tags further above text
+            if abs(single_y - g_last_crop_pos['y']) > (g_typical_h * 10.0):
+                log(f"[Filter] Ignored distant single box at Y:{single_y}")
+                return img, [], -1.0
 
     raw_candidates = temp_candidates
 
     # 2. Boxing Line Grouping
     groups = []
-    raw_candidates.sort(key=lambda c: (c['box'][1], c['box'][0]))
-    for cand in raw_candidates:
-        added = False
-        cx, cy, cw, ch = cand['box']
-        for g in groups:
-            match_found = False
-            for m in g:
-                mx, my, mw, mh = m['box']
-                v_dist = abs((cy + ch/2) - (my + mh/2))
-                v_gap = cy - (my + mh)
-                h_gap = cx - (mx + mw)
-                h_gap_rev = mx - (cx + cw)
-                x_dist = abs(cx - mx)
-                max_h = max(ch, mh)
+    if is_vertical:
+        # Grouping Transpose: Sort Right-to-Left, cluster by X-center and Y-proximity
+        raw_candidates.sort(key=lambda c: (-c['box'][0], c['box'][1]))
+        for cand in raw_candidates:
+            added = False
+            cx, cy, cw, ch = cand['box']
+            for g in groups:
+                match_found = False
+                for m in g:
+                    mx, my, mw, mh = m['box']
+                    x_dist = abs((cx + cw/2) - (mx + mw/2))
+                    y_gap = max(0, cy - (my + mh), my - (cy + ch))
+                    max_w = max(cw, mw)
+                    if x_dist < max_w * 0.5 and y_gap < max_w * 2.5:
+                        match_found = True; break
+                if match_found: g.append(cand); added = True; break
+            if not added: groups.append([cand])
+    else:
+        # Horizontal Grouping (Standard)
+        raw_candidates.sort(key=lambda c: (c['box'][1], c['box'][0]))
+        for cand in raw_candidates:
+            added = False
+            cx, cy, cw, ch = cand['box']
+            for g in groups:
+                match_found = False
+                for m in g:
+                    mx, my, mw, mh = m['box']
+                    v_dist = abs((cy + ch/2) - (my + mh/2))
+                    h_gap = max(0, cx - (mx + mw), mx - (cx + cw))
+                    x_dist = abs(cx - mx)
+                    max_h = max(ch, mh)
+                    if (v_dist < max_h * 0.5 and h_gap < max_h * 2.5) or (abs(cy - (my + mh)) < max_h * 2 and x_dist < max_h * 1.5):
+                        match_found = True; break
+                if match_found: g.append(cand); added = True; break
+            if not added: groups.append([cand])
 
-                # Absolute horizontal distance between two boxes
-                abs_h_gap = max(0, h_gap, h_gap_rev)
-
-                # A. The same line (Horizontal) - Tightening to avoid noise
-                is_same_line = (v_dist < max_h * 0.5) and (abs_h_gap < max_h * 2.5)
-                # B. Vertical stacking - Crucial for nametags
-                is_stacked = (abs(v_gap) < max_h * 2) and (x_dist < max_h * 1.5 or abs_h_gap < max_h * 1.5)
-
-                if is_same_line or is_stacked:
-                    match_found = True; break
-            if match_found: g.append(cand); added = True; break
-        if not added: groups.append([cand])
-
-    # 3. Branching based on Mode
+    # 3. Branching & Merge Logic
     mode = get_read_mode()
     selected_boxes = []
     paragraph_groups = []
 
     if mode == 'NVL':
-        # NVL Mode: Use DBSCAN to cluster all detected regions into paragraphs
+        # NVL Mode: Group regions into paragraph-level boxes
         paragraph_groups = nvl_processor.get_nvl_paragraphs(raw_candidates)
-        # Combine all paragraphs into a single list of boxes for processing
-        for p in paragraph_groups:
-            selected_boxes.extend(p)
-        # Update g_last_crop_pos for NVL continuity
-        if selected_boxes:
-            all_pts = np.concatenate([c['cnt'] for c in selected_boxes])
-            gx, _, _, _ = cv2.boundingRect(all_pts)
-            g_last_crop_pos['x'] = gx
+        for group in paragraph_groups:
+            for c in group:
+                x, y, w, h = c['box']
+                selected_boxes.append({'box': (x, y, w, h), 'w': w, 'h': h, 'cnt': c['cnt'], 'x': x})
     else:
-        # ADV Mode: Select the single best dialogue group
+        # ADV Mode selection using the transposed scoring
         best_group = select_best_adv_group(groups, res_img, target_w, target_h)
+        if best_group:
+            # Use chain-merging to include all relevant lines in the dialogue area
+            merged_groups = [best_group]
+            changed = True
+            while changed:
+                changed = False
+                # Calculate current combined bounding box of all merged groups
+                all_merged_pts = np.concatenate([c['cnt'] for g in merged_groups for c in g])
+                m_x, m_y, m_w, m_h = cv2.boundingRect(all_merged_pts)
 
-        if not best_group:
-            selected_boxes = []
-        else:
-            # [Logical Merge] Find other groups on the same horizontal plane as the best group
-            best_p = np.concatenate([c['cnt'] for c in best_group])
-            bx, by, bw, bh = cv2.boundingRect(best_p)
+                for g in groups:
+                    if any(g is x for x in merged_groups): continue
 
-            final_selected = list(best_group)
-            for g in groups:
-                if g is best_group: continue
+                    g_p = np.concatenate([c['cnt'] for c in g])
+                    gx, gy, gw, gh = cv2.boundingRect(g_p)
 
-                g_p = np.concatenate([c['cnt'] for c in g])
-                gx, gy, gw, gh = cv2.boundingRect(g_p)
+                    # Dynamic thresholding based on reading direction
+                    if is_vertical:
+                        overlap = max(0, min(m_y + m_h, gy + gh) - max(m_y, gy))
+                        dist = max(0, gx - (m_x + m_w), m_x - (gx + gw))
+                        overlap_thresh = (min(m_h, gh) * 0.15)
+                        # Increased vertical gap threshold to 6x typical width for sparse layouts
+                        dist_thresh = (g_typical_h if g_typical_h > 0 else target_w * 0.05) * 6.0
+                    else:
+                        overlap = max(0, min(m_x + m_w, gx + gw) - max(m_x, gx))
+                        dist = max(0, gy - (m_y + m_h), m_y - (gy + gh))
+                        overlap_thresh = (min(m_w, gw) * 0.15)
+                        # Increased horizontal gap threshold to 6x typical height
+                        dist_thresh = (g_typical_h if g_typical_h > 0 else target_h * 0.05) * 6.0
 
-                # Check for vertical overlap (min 60%) to confirm they belong to the same line
-                overlap_y = max(0, min(by + bh, gy + gh) - max(by, gy))
-                if overlap_y > (min(bh, gh) * 0.6):
-                    # Horizontal distance check to ensure it's within game UI bounds
-                    dist_h = max(0, gx - (bx + bw), bx - (gx + gw))
-                    if dist_h < target_w * 0.8:
-                        final_selected.extend(g)
+                    if overlap > overlap_thresh and dist < dist_thresh:
+                        merged_groups.append(g)
+                        changed = True
 
-            selected_boxes = final_selected
+            # Convert character blobs into selected boxes after chain merge
+            for g in merged_groups:
+                for c in g:
+                    x, y, w, h = c['box']
+                    selected_boxes.append({'box': (x, y, w, h), 'w': w, 'h': h, 'cnt': c['cnt'], 'x': x})
 
-        # Store last position for ADV persistence
-        if selected_boxes:
-            group_p = np.concatenate([c['cnt'] for c in selected_boxes])
-            gx, gy, _, _ = cv2.boundingRect(group_p)
-            g_last_crop_pos['x'], g_last_crop_pos['y'] = gx, gy
+    # 4. Post-processing: Filter yomigana/noise and update persistent tracking
+    if selected_boxes and g_typical_h > 0:
+        # Lowered filter limit to 0.5 to safely keep punctuated or thin lines
+        limit = g_typical_h * 0.5
+        selected_boxes = [b for b in selected_boxes if (b['w'] if is_vertical else b['h']) >= limit]
 
-    if selected_boxes and update_history:
-        avg_h = sum(c['h'] for c in selected_boxes) / len(selected_boxes)
+    if selected_boxes:
+        # Re-calculate tracking position based on filtered boxes
+        all_pts = np.concatenate([b['cnt'] for b in selected_boxes])
+        gx, gy, _, _ = cv2.boundingRect(all_pts)
+        g_last_crop_pos['x'], g_last_crop_pos['y'] = gx, gy
 
-        if (target_h * 0.02) < avg_h < (target_h * 0.15):
-            g_h_history.append(avg_h)
-            if len(g_h_history) > MAX_HISTORY:
-                g_h_history.pop(0)
+    # Sort line boxes explicitly for Right-to-Left order before returning
+    if is_vertical:
+        selected_boxes.sort(key=lambda b: b['x'], reverse=True)
+    else:
+        selected_boxes.sort(key=lambda b: (b['box'][1], b['box'][0]))
 
-            temp_sorted = sorted(g_h_history)
-            g_typical_h = temp_sorted[len(temp_sorted)//2]
-
-    # Filtering is always performed relative to the current g_typical_h
-    filter_lower = 0.6 if len(g_h_history) < 5 else 0.7
-    candidates = []
-    for cand in temp_candidates:
-        if g_typical_h > 0:
-            if cand['h'] < g_typical_h * filter_lower or cand['h'] > g_typical_h * 3.0:
-                continue
-        candidates.append(cand)
-
-    # 4. Debug Visualization
+    # 4. Debug Visualization & Mapping
     sx, sy = orig_w / target_w, orig_h / target_h
     debug_img = img.copy()
 
-    # (1) Draw all raw candidates in green
+    # Draw all raw candidates in green
     for cand in raw_candidates:
         cx, cy, cw, ch = cand['box']
         cv2.rectangle(debug_img, (int(cx * sx), int(cy * sy)),
                       (int((cx + cw) * sx), int((cy + ch) * sy)), (0, 255, 0), 1)
 
-    # Improved Visualization for NVL: Draw red boxes for each paragraph separately
+    # Draw red "Detection Area" boxes
     if mode == 'NVL' and paragraph_groups:
         for group in paragraph_groups:
             all_pts = np.concatenate([c['cnt'] for c in group])
             gx, gy, gw, gh = cv2.boundingRect(all_pts)
             rx, ry, rw, rh = int(gx * sx), int(gy * sy), int(gw * sx), int(gh * sy)
-            cv2.rectangle(debug_img, (rx - 10, ry - 10), (rx + rw + 10, ry + rh + 10), (0, 0, 255), 3)
+            cv2.rectangle(debug_img, (rx - 5, ry - 5), (rx + rw + 5, ry + rh + 5), (0, 0, 255), 2)
     elif selected_boxes:
-        # Calculate overall bounding box for red visualization (ADV or Fallback)
-        all_pts = np.concatenate([c['cnt'] for c in selected_boxes])
+        all_pts = np.concatenate([b['cnt'] for b in selected_boxes])
         gx, gy, gw, gh = cv2.boundingRect(all_pts)
         rx, ry, rw, rh = int(gx * sx), int(gy * sy), int(gw * sx), int(gh * sy)
-        cv2.rectangle(debug_img, (rx - 10, ry - 10), (rx + rw + 10, ry + rh + 10), (0, 0, 255), 3)
+        cv2.rectangle(debug_img, (rx - 5, ry - 5), (rx + rw + 5, ry + rh + 5), (0, 0, 255), 2)
 
-    if DEBUG:
+    if DEBUG and update_history:
         debug_save_path = os.path.join(tempfile.gettempdir(), "image_ko_trans_debug_craft.jpg")
         cv2.imwrite(debug_save_path, debug_img)
 
-    # Return coordinates mapped back to original image size
-    final_boxes = [{'x': int(c['box'][0]*sx), 'y': int(c['box'][1]*sy),
-                    'w': int(c['box'][2]*sx), 'h': int(c['box'][3]*sy)} for c in selected_boxes]
+    # Update g_typical_h using the width(vertical) or height(horizontal) of line boxes
+    pending_avg_val = -1.0
+    if selected_boxes and update_history:
+        should_learn = True
+        if is_vertical:
+            # Only learn if it's a tall column (H >= 2*W)
+            total_h = sum(b['h'] for b in selected_boxes)
+            total_w = sum(b['w'] for b in selected_boxes)
+            if total_h < total_w * 2: should_learn = False
 
-    return img, final_boxes
+        if should_learn:
+            avg_val = sum((b['w'] if is_vertical else b['h']) for b in selected_boxes) / len(selected_boxes)
+            target_metric = target_w if is_vertical else target_h
+            if (target_metric * 0.01) < avg_val < (target_metric * 0.2):
+                pending_avg_val = avg_val
+
+    # Return img, mapped boxes, and the pending learning value
+    return img, [{'x': int(b['box'][0]*sx), 'y': int(b['box'][1]*sy),
+                  'w': int(b['box'][2]*sx), 'h': int(b['box'][3]*sy)} for b in selected_boxes], pending_avg_val
 
 @app.post("/detect")
 async def do_detect(request: Request):
@@ -508,8 +560,7 @@ async def do_detect(request: Request):
         img = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, 4))
         full_img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-        # Offload blocking CRAFT detection to a separate thread
-        _, text_boxes = await asyncio.to_thread(get_smart_crop, full_img, False)
+        _, text_boxes, _ = await asyncio.to_thread(get_smart_crop, full_img, False)
 
         count = len(text_boxes)
         area = sum(b['w'] * b['h'] for b in text_boxes)
@@ -522,99 +573,133 @@ async def do_detect(request: Request):
 # Paddle OCR
 @app.post("/ocr")
 async def do_ocr(request: Request):
-    """Endpoint for performing precision OCR on data read from shared memory"""
-    global g_ocr
+    """Endpoint with Axis-Swapped RTL text assembly support."""
+    global g_ocr, g_typical_h
     try:
         data = await request.json()
         w, h = data.get("w"), data.get("h")
-
-        if not w or not h:
-            return PlainTextResponse("0,0,0")
+        if not w or not h: return PlainTextResponse("0,0,0")
 
         raw_data = await read_shm_with_flag(w, h)
-        if raw_data is None:
-            return PlainTextResponse("")
+        if raw_data is None: return PlainTextResponse("")
 
         img = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, 4))
         full_img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        is_vert = is_jap_read_vertical()
 
         if DEBUG:
-            debug_save_path = os.path.join(tempfile.gettempdir(), "image_ko_trans_capture.jpg")
-            cv2.imwrite(debug_save_path, full_img)
+            cv2.imwrite(os.path.join(tempfile.gettempdir(), "image_ko_trans_capture.jpg"), full_img)
 
         # Offload smart crop calculation to keep server responsive
-        _, text_boxes = await asyncio.to_thread(get_smart_crop, full_img, True)
-        if not text_boxes:
-            return PlainTextResponse("")
+        _, text_boxes, pending_val = await asyncio.to_thread(get_smart_crop, full_img, True)
+        if not text_boxes: return PlainTextResponse("")
+
+        # Calculate the bounding box of the entire detected area for ROI feedback
+        all_x = [b['x'] for b in text_boxes]
+        all_y = [b['y'] for b in text_boxes]
+        all_w = [b['w'] for b in text_boxes]
+        all_h = [b['h'] for b in text_boxes]
+
+        bx, by = min(all_x), min(all_y)
+        bw = max(x + w for x, w in zip(all_x, all_w)) - bx
+        bh = max(y + h for y, h in zip(all_y, all_h)) - by
+        roi_str = f"{bx},{by},{bw},{bh}"
 
         recognizer = getattr(g_ocr, 'paddlex_pipeline', None)
         internal_p = getattr(recognizer, '_pipeline', recognizer)
         engine = getattr(internal_p, 'text_rec_model', None)
+        if not engine: return PlainTextResponse("")
 
-        if not engine:
-            log("[OCR] ❌ Paddle recognition engine is not initialized.")
-            return PlainTextResponse("")
-
-        # Image data is passed directly as a list instead of file paths to avoid I/O
         img_list = []
+        valid_indices = []
         for i, box in enumerate(text_boxes):
-            x, y, w, h = box['x'], box['y'], box['w'], box['h']
-            # Apply 30% padding relative to character height
-            pad = int(h * 0.3)
-            y1, y2 = max(0, y - pad), min(full_img.shape[0], y + h + pad)
-            x1, x2 = max(0, x - pad), min(full_img.shape[1], x + w + pad)
+            bx_box, by_box, bw_box, bh_box = box['x'], box['y'], box['w'], box['h']
+            char_size = bw_box if is_vert else bh_box
+
+            pad = int(char_size * (0.6 if is_vert else 0.3))
+            y1, y2 = max(0, by_box - pad), min(full_img.shape[0], by_box + bh_box + pad)
+            x1, x2 = max(0, bx_box - pad), min(full_img.shape[1], bx_box + bw_box + pad)
             sub = full_img[y1:y2, x1:x2]
 
-            if sub.size > 0 and h < 45:
-                sub = cv2.resize(sub, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+            if sub.size > 0:
+                if is_vert and bh_box > bw_box * 1.5:
+                    sub = cv2.rotate(sub, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-            # Write crops to file only in DEBUG mode for performance
-            if DEBUG:
-                crop_path = os.path.join(tempfile.gettempdir(), f"image_ko_trans_crop_{i}.jpg")
-                cv2.imwrite(crop_path, sub)
+                # Upscale small text lines
+                if char_size < 45:
+                    sub = cv2.resize(sub, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
 
-            img_list.append(sub)
+                # Write crops to file only in DEBUG mode for performance
+                if DEBUG:
+                    crop_path = os.path.join(tempfile.gettempdir(), f"image_ko_trans_crop_{i}.jpg")
+                    cv2.imwrite(crop_path, sub)
 
-        # Execute blocking OCR prediction in a thread pool to avoid freezing the server
+                img_list.append(sub)
+                valid_indices.append(i)
+
+        if not img_list: return PlainTextResponse("")
+
         rec_results = await asyncio.to_thread(lambda: list(engine.predict(img_list)))
 
         raw_boxes = []
         for i, res in enumerate(rec_results):
-            # TextRecResult objects support dict-like access via .get()
-            text = res.get('rec_text', "").strip()
-            score = float(res.get('rec_score', 0.0))
-
+            # Parse results from the internal paddlex engine dict format
+            text, score = res.get('rec_text', ""), float(res.get('rec_score', 0.0))
             if score >= 0.5 and text:
-                box = text_boxes[i]
-                raw_boxes.append({
-                    'x': box['x'], 'y': box['y'] + box['h']/2,
-                    'y_min': box['y'], 'y_max': box['y'] + box['h'],
-                    'h': box['h'], 'text': text
-                })
+                box = text_boxes[valid_indices[i]]
+                raw_boxes.append({'x': box['x'], 'y': box['y'], 'w': box['w'], 'h': box['h'], 'text': text})
 
-        # Row sorting and final text assembly (corrects reading order based on vertical overlap)
-        if not raw_boxes:
-            return PlainTextResponse("")
+        if not raw_boxes: return PlainTextResponse("")
 
-        raw_boxes.sort(key=lambda b: b['y_min'])
-        rows = []
-        while raw_boxes:
-            base = raw_boxes.pop(0)
-            curr_row, remaining = [base], []
-            for b in raw_boxes:
-                overlap = max(0, min(base['y_max'], b['y_max']) - max(base['y_min'], b['y_min']))
-                if overlap > min(base['h'], b['h']) * 0.5:
-                    curr_row.append(b)
-                else:
-                    remaining.append(b)
-            curr_row.sort(key=lambda b: b['x'])
-            rows.append(curr_row)
-            raw_boxes = remaining
+        if is_vert:
+            # Vertical RTL Assembly: Group columns Right-to-Left, sort within columns Top-to-Bottom
+            raw_boxes.sort(key=lambda b: b['x'], reverse=True)
+            lines = []
+            while raw_boxes:
+                base = raw_boxes.pop(0)
+                curr_line, remaining = [base], []
+                base_cx = base['x'] + base['w'] / 2
+                for b in raw_boxes:
+                    # Check for X-axis overlap to group characters into the same vertical column
+                    if abs(base_cx - (b['x'] + b['w'] / 2)) < base['w'] * 0.8:
+                        curr_line.append(b)
+                    else:
+                        remaining.append(b)
+                # Sort characters within the column from top to bottom
+                curr_line.sort(key=lambda b: b['y'])
+                lines.append(curr_line)
+                raw_boxes = remaining
+            final_text = "".join(["".join([b['text'] for b in l]) for l in lines]).strip()
+        else:
+            # Standard Horizontal Assembly: Sort lines by Y then characters by X
+            raw_boxes.sort(key=lambda b: b['y'])
+            rows = []
+            while raw_boxes:
+                base = raw_boxes.pop(0)
+                curr_row, remaining = [base], []
+                for b in raw_boxes:
+                    overlap = max(0, min(base['y']+base['h'], b['y']+b['h']) - max(base['y'], b['y']))
+                    if overlap > min(base['h'], b['h']) * 0.5:
+                        curr_row.append(b)
+                    else:
+                        remaining.append(b)
+                curr_row.sort(key=lambda b: b['x'])
+                rows.append(curr_row)
+                raw_boxes = remaining
+            final_text = " ".join(["".join([b['text'] for b in r]) for r in rows]).strip()
 
-        final_text = " ".join(["".join([b['text'] for b in r]) for r in rows]).strip()
-        final_text = fix_katakana_confusion(final_text)
-        log(f"[OCR Result] Rows: {len(rows)} | Text: {final_text}")
-        return PlainTextResponse(final_text)
+        if len(final_text) >= 5 and pending_val > 0:
+            g_h_history.append(pending_val)
+            if len(g_h_history) > MAX_HISTORY: g_h_history.pop(0)
+            g_typical_h = sorted(g_h_history)[len(g_h_history)//2]
+            log(f"[Learning] Verified scale learned: {int(pending_val)} (Text: {final_text[:10]}...)")
+        elif pending_val > 0:
+            log(f"[Learning] Learning skipped. Text too short ({len(final_text)} chars).")
+
+        final_text = apply_custom_replacements(final_text)
+
+        log(f"[OCR Result] Mode: {'Vert' if is_vert else 'Horiz'} | Text: {final_text}")
+        return PlainTextResponse(f"{roi_str}|{fix_katakana_confusion(final_text)}")
 
     except Exception as e:
         log(f"[Exception] OCR Logic Error:\n{traceback.format_exc()}")
@@ -667,6 +752,16 @@ async def translate(request: Request):
         log(f"[Error] Translation Pipeline Error:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def apply_custom_replacements(text):
+    repl_map = {
+        '°':'。', '`':'、'
+    }
+
+    for src, dst in repl_map.items():
+        text = text.replace(src, dst)
+
+    return text
+
 def fix_katakana_confusion(text):
     is_kana = lambda c: '\u30a0' <= c <= '\u30ff'
 
@@ -714,7 +809,7 @@ def get_jap_furigana(text):
         except:
             return text
 
-    kanji_pattern = re.compile(r'[\u4e00-\u9faf]') # 한자 범위 체크
+    kanji_pattern = re.compile(r'[\u4e00-\u9faf]')
 
     result = []
     buf_text = ""
