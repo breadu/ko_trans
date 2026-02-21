@@ -754,7 +754,7 @@ async def translate(request: Request):
 
 def apply_custom_replacements(text):
     repl_map = {
-        '°':'。', '`':'、'
+        '°':'。', '`':'、', '|':'｜'
     }
 
     for src, dst in repl_map.items():

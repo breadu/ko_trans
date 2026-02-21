@@ -536,6 +536,10 @@ LookupDictionary() {
         }
 
         resultText := TriggerOCRForWord(imgInfo)
+        if (InStr(resultText, "|")) {
+            parts := StrSplit(resultText, "|")
+            resultText := parts[2]
+        }
 
         if (resultText != "" && !InStr(resultText, "No text found")) {
             LogDebug("[OCR] Word Trigger Success. Result: " . SubStr(resultText, 1, 40))
