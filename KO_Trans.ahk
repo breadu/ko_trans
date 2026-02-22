@@ -1416,6 +1416,7 @@ WatchArea() {
     Global BaselineBitmap, StableChangeCount, Overlay, OCR_X, OCR_Y, OCR_W, OCR_H
     Global CAPTURE_TARGET, CAPTURE_TARGET_CLIPBOARD
     Global CursorExclusionRect
+    Global LastTextROI, OCR_LANG, JAP_READ_VERTICAL
 
     if (!Overlay.IsActive || Overlay.IsBusy || CAPTURE_TARGET == CAPTURE_TARGET_CLIPBOARD)
         return
@@ -1426,8 +1427,16 @@ WatchArea() {
                     ? "ahk_class " . CAPTURE_CLASS . " ahk_exe " . CAPTURE_PROCESS
                     : "ahk_exe " . CAPTURE_PROCESS
     hwndTarget := (CAPTURE_TARGET == CAPTURE_TARGET_WINDOW) ? WinExist(targetCriteria) : 0
-    if (hwndTarget && WinGetMinMax("ahk_id " hwndTarget) == -1)
+    if (hwndTarget && WinGetMinMax("ahk_id " hwndTarget) == -1) {
         return
+    }
+
+    ; Calculate base character size for intelligent padding
+    isVert := (OCR_LANG == "jap" && JAP_READ_VERTICAL == "1")
+    charSize := isVert ? LastTextROI.w : LastTextROI.h
+    if (charSize <= 0) {
+        charSize := 30
+    }
 
     currentBitmap := CapturePhysicalScreen(OCR_X, OCR_Y, OCR_W, OCR_H, hwndTarget)
     if (BaselineBitmap == 0) {
@@ -1443,8 +1452,52 @@ WatchArea() {
     if !Gdip_LockBits(currentBitmap, 0, 0, width, height, &Stride1, &Scan0_1, &Bdata1) {
         if !Gdip_LockBits(BaselineBitmap, 0, 0, width, height, &Stride2, &Scan0_2, &Bdata2) {
             Loop 1000 {
-                rx := Random(0, width - 1)
-                ry := Random(0, height - 1)
+                ; Smart Sampling Ratio (7:3)
+                ; 70% (1-700): Global random sampling for UI/Scene changes
+                ; 30% (701-1000): ROI-focused sampling for text appending
+                if (A_Index > 700 && LastTextROI.w > 0) {
+                    if (!isVert) { ; Horizontal Mode
+                        ; Region 1 (15%): Right of current text (Gap of 1.5 chars to skip cursor)
+                        x_min := LastTextROI.x + LastTextROI.w + (charSize * 1.5)
+                        x_max := width - 1
+                        y_min := LastTextROI.y
+                        y_max := LastTextROI.y + LastTextROI.h
+
+                        ; Region 2 (15%): Next line below current text
+                        if (A_Index > 850) {
+                            x_min := LastTextROI.x
+                            y_min := LastTextROI.y + LastTextROI.h + 5
+                            y_max := height - 1
+                        }
+                    } else { ; Vertical Mode
+                        ; Region 1 (15%): Below current column (Gap of 1.5 chars to skip cursor)
+                        x_min := LastTextROI.x
+                        x_max := LastTextROI.x + LastTextROI.w
+                        y_min := LastTextROI.y + LastTextROI.h + (charSize * 1.5)
+                        y_max := height - 1
+
+                        ; Region 2 (15%): Next column to the left
+                        if (A_Index > 850) {
+                            x_max := LastTextROI.x - 5
+                            x_min := 0
+                            y_min := LastTextROI.y
+                        }
+                    }
+
+                    ; Boundary clamping to stay within OCR area
+                    x_min := Max(0, Min(x_min, width - 2)), x_max := Max(0, Min(x_max, width - 1))
+                    y_min := Max(0, Min(y_min, height - 2)), y_max := Max(0, Min(y_max, height - 1))
+
+                    if (x_min >= x_max || y_min >= y_max) {
+                        rx := Random(0, width - 1), ry := Random(0, height - 1)
+                    } else {
+                        rx := Random(x_min, x_max), ry := Random(y_min, y_max)
+                    }
+                } else {
+                    ; Default global sampling
+                    rx := Random(0, width - 1)
+                    ry := Random(0, height - 1)
+                }
 
                 ; Direct memory access for high performance sampling
                 pix1 := NumGet(Scan0_1, (ry * Stride1) + (rx * 4), "UInt")
