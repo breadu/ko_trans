@@ -21,6 +21,7 @@ IsBooting() {
 Global OCR_TEST_MODE := false
 Global ENGINE_DEVICE_MODE := "CPU"
 Global WM_COPYDATA := 0x004A
+Global WM_LBUTTONDOWN := 0x0201
 Global POT_COMMAND := 0x0400
 Global POT_GET_PLAYFILE_NAME := 0x6020
 Global POT_GET_CURRENT_TIME := 0x5004
@@ -53,7 +54,6 @@ Global StableChangeCount := 0
 Global CursorExclusionRect := {x1: -1, y1: -1, x2: -1, y2: -1}
 Global SplashGui := unset
 Global lastHash := ""
-Global WM_LBUTTONDOWN := 0x0201
 Global LastTextROI := {x:0, y:0, w:0, h:0}
 
 A_MenuMaskKey := "vkFF"  ; Prevent Ctrl key interference during hotkey execution
@@ -81,7 +81,7 @@ Global Overlay := {
 ; ---------------------------------------------------------
 ; Initializing Functions
 ; ---------------------------------------------------------
-;OnMessage(WM_LBUTTONDOWN, DragTransWindow)
+OnMessage(WM_LBUTTONDOWN, DragTransWindow)
 OnMessage(WM_COPYDATA, ProcessPotPlayerResponse)
 
 InitSharedMemory()
@@ -882,8 +882,8 @@ ShowTransOverlay(show) {
         Overlay.Gui.OnEvent("Close", (*) => ShowTransOverlay(false))
         Overlay.Gui.OnEvent("Size", TransOverlay_Size)
 
+        ; Block minimizing overlay window
         OnMessage(0x0112, (wParam, *) => (wParam & 0xFFF0 = 0xF020 ? 0 : ""))
-        OnMessage(WM_LBUTTONDOWN, DragTransWindow)
 
         ; Use the corrected showX and showY for precise positioning
         Overlay.Gui.Show("x" showX " y" showY " w" Overlay.W " h" Overlay.H " NA")
