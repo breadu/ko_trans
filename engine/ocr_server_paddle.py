@@ -55,12 +55,18 @@ g_engine_name = "Gemini"
 g_jap_tagger = None
 g_active_profile = "Settings"
 g_current_device = "Unknown"
-g_typical_h = -1.0
-g_h_history = []
 g_last_crop_pos = {'x': -1, 'y': -1}
 
-MAX_HISTORY = 10
 INI_PATH = path_util.INI_PATH
+
+# Adaptive Height Learning with Pollution Prevention
+g_typical_h = -1.0
+g_h_history = []
+g_pending_h = 0.0
+g_pending_count = 0
+
+MAX_HEIGHT_HISTORY = 15
+PENDING_THRESHOLD = 3
 
 # Function implementations
 def init_craft_engine():
@@ -689,10 +695,7 @@ async def do_ocr(request: Request):
             final_text = " ".join(["".join([b['text'] for b in r]) for r in rows]).strip()
 
         if len(final_text) >= 5 and pending_val > 0:
-            g_h_history.append(pending_val)
-            if len(g_h_history) > MAX_HISTORY: g_h_history.pop(0)
-            g_typical_h = sorted(g_h_history)[len(g_h_history)//2]
-            log(f"[Learning] Verified scale learned: {int(pending_val)} (Text: {final_text[:10]}...)")
+            update_typical_h(pending_val)
         elif pending_val > 0:
             log(f"[Learning] Learning skipped. Text too short ({len(final_text)} chars).")
 
@@ -751,6 +754,67 @@ async def translate(request: Request):
     except Exception as e:
         log(f"[Error] Translation Pipeline Error:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def update_typical_h(new_h):
+    """
+    Updates character height using a Median Filter and a Verification Queue.
+    Ensures that short-lived UI elements or noise don't pollute the baseline.
+    """
+    global g_typical_h, g_h_history, g_pending_h, g_pending_count
+
+    # Initial State: Accept the very first detection as the baseline
+    if g_typical_h < 0:
+        g_typical_h = new_h
+        g_h_history = [new_h]
+        log(f"[Learning] Initialized Baseline: {new_h:.1f}")
+        return
+
+    # Sudden Change Detection (Out of ±50% range)
+    is_sudden_change = (new_h > g_typical_h * 1.5) or (new_h < g_typical_h * 0.5)
+
+    if is_sudden_change:
+        # Check consistency with the pending value (20% tolerance)
+        if g_pending_h > 0 and (g_pending_h * 0.8 <= new_h <= g_pending_h * 1.2):
+            g_pending_count += 1
+        else:
+            g_pending_h = new_h
+            g_pending_count = 1
+
+        # If the change persists, treat it as a legitimate environment shift (e.g., Resize)
+        if g_pending_count >= PENDING_THRESHOLD:
+            log(f"[Learning] Scale Shift Confirmed: {g_typical_h:.1f} -> {new_h:.1f}")
+            g_typical_h = new_h
+            g_h_history = [new_h]
+            g_pending_h = 0
+            g_pending_count = 0
+        else:
+            # Block the outlier from entering the median buffer
+            log(f"[Learning] Outlier Blocked: {new_h:.1f} (Verification: {g_pending_count}/{PENDING_THRESHOLD})")
+        return
+
+    # Normal range data: Reset pending state and update buffer
+    g_pending_h = 0
+    g_pending_count = 0
+
+    g_h_history.append(new_h)
+    if len(g_h_history) > MAX_HEIGHT_HISTORY:
+        g_h_history.pop(0)
+
+    current_size = len(g_h_history)
+    if current_size == 5:
+        # Explicitly log when transitioning from Average to Median filter
+        g_typical_h = float(np.median(g_h_history))
+        log(f"[Learning] Warming up Complete. Median filter activated: {g_typical_h:.1f}")
+    elif current_size > 5:
+        old_h = g_typical_h
+        g_typical_h = float(np.median(g_h_history))
+        # Log only if there is a slight drift to keep console clean
+        if abs(old_h - g_typical_h) >= 0.1:
+            log(f"[Learning] Baseline Fine-tuned: {old_h:.1f} -> {g_typical_h:.1f}")
+    else:
+        # Initial growth phase (1/5 to 4/5)
+        g_typical_h = sum(g_h_history) / current_size
+        log(f"[Learning] Warming up: {g_typical_h:.1f} ({current_size}/5)")
 
 def apply_custom_replacements(text):
     repl_map = {
