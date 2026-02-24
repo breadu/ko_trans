@@ -205,7 +205,7 @@ class GeminiEngine(BaseEngine):
                 return res
             else:
                 log("[Warning] Gemini response blocked completely. Not adding to history.")
-                return "⚠️ 번역 실패: 제미나이 정책에 의해 응답이 차단되었습니다."
+                return "⚠️ 제미나이가 응답을 생성하지 못했습니다. 서버 부하 때문일 수 있으니 잠시 후 다시 시도해 주세요."
 
         except Exception as e:
             log(f"[Error] Gemini Translation Exception: {e}")

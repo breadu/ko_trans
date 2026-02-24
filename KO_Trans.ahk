@@ -1142,7 +1142,7 @@ TriggerOCRForTranslate() {
                     ; OCR Test Mode Logic
                     if (OCR_TEST_MODE) {
                         if !ProcessExist("Textractor.exe") {
-                            BigToolTip("OCR 테스트 모드이나, 테스트 준비가 완료되지 않았습니다", 3000) ;
+                            BigToolTip("OCR 테스트 모드이나, 테스트 준비가 완료되지 않았습니다", 3000)
                         } else {
                             clipText := Trim(A_Clipboard)
                             if (clipText != "" && ocrResult != "" && RegExMatch(clipText, "[^\s\p{P}\p{S}]")) {
@@ -1644,9 +1644,18 @@ Translate(inputText, profileName := PROFILE_SETTINGS) {
         response := whr.ResponseText
         whr := ""
 
+        if (RegExMatch(response, "i)[\x22\x27]error[\x22\x27]\s*:") || InStr(response, "Gemini Error:") || InStr(response, "ChatGPT Error:")) {
+            if (RegExMatch(response, "i)(503|429|UNAVAILABLE|limit|overloaded|busy|demand)")) {
+                LogDebug("[Translate] Engine Busy: " . response)
+                return "⚠️ AI 서버에 사용자가 몰려 지연되고 있습니다. 잠시 후 다시 시도해 주세요!"
+            }
+
+            LogDebug("[Translate] API Error: " . response)
+            return "⚠️ AI 서버 오류가 발생했습니다."
+        }
+
         LogDebug("[Translate] Success. Output length: " . StrLen(response))
         return response
-
     } catch Error as e {
         LogDebug("[Error] Translation Exception: " . e.Message)
         return "오류: " . e.Message
