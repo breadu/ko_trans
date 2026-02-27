@@ -1630,35 +1630,51 @@ Translate(inputText, profileName := PROFILE_SETTINGS) {
 
     jsonPayload := '{"text": "' . safeText . '", "profile": "' . profileName . '", "model": "' . targetModel . '"}'
 
-    try {
-        whr := ComObject("WinHttp.WinHttpRequest.5.1")
-        whr.Open("POST", CHATGPT_ENDPOINT, false)
-        whr.SetRequestHeader("Content-Type", "application/json; charset=utf-8")
-        whr.Send(jsonPayload)
+    maxAttempts := 2
 
-        if (whr.Status != 200) {
-            LogDebug("[Error] Translation failed. Status: " . whr.Status)
-            return "서버 오류: " . whr.Status
-        }
+    Loop maxAttempts {
+        try {
+            whr := ComObject("WinHttp.WinHttpRequest.5.1")
+            whr.Open("POST", CHATGPT_ENDPOINT, false)
+            whr.SetRequestHeader("Content-Type", "application/json; charset=utf-8")
+            whr.Send(jsonPayload)
 
-        response := whr.ResponseText
-        whr := ""
-
-        if (RegExMatch(response, "i)[\x22\x27]error[\x22\x27]\s*:") || InStr(response, "Gemini Error:") || InStr(response, "ChatGPT Error:")) {
-            if (RegExMatch(response, "i)(503|429|UNAVAILABLE|limit|overloaded|busy|demand)")) {
-                LogDebug("[Translate] Engine Busy: " . response)
-                return "⚠️ AI 서버에 사용자가 몰려 지연되고 있습니다. 잠시 후 다시 시도해 주세요!"
+            if (whr.Status != 200) {
+                LogDebug("[Error] Translation failed. Status: " . whr.Status)
+                return "서버 오류: " . whr.Status
             }
 
-            LogDebug("[Translate] API Error: " . response)
-            return "⚠️ AI 서버 오류가 발생했습니다."
-        }
+            response := whr.ResponseText
+            whr := ""
 
-        LogDebug("[Translate] Success. Output length: " . StrLen(response))
-        return response
-    } catch Error as e {
-        LogDebug("[Error] Translation Exception: " . e.Message)
-        return "오류: " . e.Message
+            if (RegExMatch(response, "i)[\x22\x27]error[\x22\x27]\s*:") || InStr(response, "Gemini Error:") || InStr(response, "ChatGPT Error:")) {
+                if (RegExMatch(response, "i)(503|429|UNAVAILABLE|limit|overloaded|busy|demand)")) {
+
+                    if (A_Index < maxAttempts) {
+                        LogDebug("[Translate] Engine Busy. Retrying once... (Attempt " . A_Index . ")")
+                        Sleep(500)
+                        continue
+                    }
+
+                    LogDebug("[Translate] Engine Busy after retry: " . response)
+                    return "⚠️ AI 서버에 사용자가 몰려 지연되고 있습니다. 잠시 후 다시 시도해 주세요!" ;
+                }
+
+                LogDebug("[Translate] API Error: " . response)
+                return "⚠️ AI 서버 오류가 발생했습니다."
+            }
+
+            LogDebug("[Translate] Success. Output length: " . StrLen(response))
+            return response
+        } catch Error as e {
+            if (A_Index < maxAttempts) {
+                LogDebug("[Error] Connection issue. Retrying once...")
+                Sleep(500)
+                continue
+            }
+            LogDebug("[Error] Translation Exception: " . e.Message)
+            return "오류: " . e.Message
+        }
     }
 }
 
