@@ -172,10 +172,10 @@ class GeminiEngine(BaseEngine):
 
         try:
             # Limits context window to the last 10 turns to balance performance and relevancy
-            history_len = len(self.history[-10:])
+            history_len = len(self.history[-5:])
             log(f"[Gemini] Requesting: {model_name} | Profile: {profile} | History context: {history_len} turns")
 
-            contents = [types.Content(role="model" if e['role']=="assistant" else e['role'], parts=[types.Part(text=e['content'])]) for e in self.history[-10:]]
+            contents = [types.Content(role="model" if e['role']=="assistant" else e['role'], parts=[types.Part(text=e['content'])]) for e in self.history[-5:]]
             contents.append(types.Content(role="user", parts=[types.Part(text=text)]))
             response = self.client.models.generate_content(
                 model=model_name or "gemini-2.5-flash-lite",
@@ -281,11 +281,11 @@ class ChatGPTEngine(BaseEngine):
             )
 
         try:
-            history_len = len(self.history[-10:])
+            history_len = len(self.history[-5:])
             log(f"[ChatGPT] Requesting: {model_name} | Profile: {profile} | History turns: {history_len}")
 
             messages = [{"role": "system", "content": system_content}]
-            messages.extend(self.history[-10:])
+            messages.extend(self.history[-5:])
             messages.append({"role": "user", "content": text})
 
             response = self.client.chat.completions.create(model=model_name or "gpt-4.1-nano", messages=messages)
@@ -364,9 +364,9 @@ class LocalEngine(BaseEngine):
             )
 
         try:
-            log(f"[Local] Ollama Request: {model_name} | Profile: {profile} | History turns: {len(self.history[-10:])}")
+            log(f"[Local] Ollama Request: {model_name} | Profile: {profile} | History turns: {len(self.history[-5:])}")
             messages = [{"role": "system", "content": story_prompt}]
-            messages.extend(self.history[-10:])
+            messages.extend(self.history[-5:])
             messages.append({"role": "user", "content": text})
             response = self.client.chat.completions.create(model=model_name or "gemma3:12b", messages=messages)
             raw = response.choices[0].message.content.strip()
