@@ -1135,7 +1135,7 @@ ShowProfileSelector() {
 ; Drag-to-select OCR area with WGC window mapping support
 ; ---------------------------------------------------------
 ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Process, Class) {
-    global CaptureAreaGui, btnClose, Manager_EditGui
+    global CaptureAreaGui, btnClose, Manager_EditGui, CaptureAreaText
 
     if IsSet(Overlay)
         Overlay.IsBusy := true
@@ -1179,6 +1179,9 @@ ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Pro
     CaptureAreaGui.BackColor := SelectorColor
     WinSetTransparent(180, CaptureAreaGui)
 
+    CaptureAreaGui.SetFont("s15 Norm cWhite", "Segoe UI")
+    CaptureAreaText := CaptureAreaGui.Add("Text", "x15 y15 w" (Target_W.Value - 50) " h" (Target_H.Value - 20), "자막(텍스트)을 인식할 영역에 맞춰 창의 크기를 조절한 후, 우측 상단의 X 버튼을 눌러 확정해 주세요.")
+
     btnClose := CaptureAreaGui.Add("Button", "w40 h38", "X")
     btnClose.OnEvent("Click", OnConfirm)
 
@@ -1216,9 +1219,17 @@ ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Pro
 }
 
 CaptureArea_Size(thisGui, minMax, width, height) {
-    global btnClose
+    global btnClose, CaptureAreaText
     if IsSet(btnClose) {
         btnClose.Move(width - 40, 0)
+    }
+
+    if IsSet(CaptureAreaText) {
+        CaptureAreaText.Move(,, width - 55, height - 20)
+    }
+
+    if (IsSet(thisGui) && thisGui.Hwnd) {
+        WinRedraw("ahk_id " thisGui.Hwnd)
     }
 }
 
@@ -1231,10 +1242,10 @@ ShowOverlayPreviewArea(Target_X, Target_Y, Target_W, Target_H, FontSize, Opacity
     if IsSet(Overlay)
         Overlay.IsBusy := true
 
-    sampleStr := "This is a test phrase for configuring the overlay area. "
-               . "It helps estimate the position and size where actual game subtitles will appear.`n"
-               . "이것은 오버레이 영역을 설정하기 위한 테스트 문구입니다. "
-               . "실제 게임 자막이 나타날 위치와 크기를 가늠하는 데 도움이 됩니다.`n"
+    sampleStr := "Adjust the window to the position and size where the translated subtitles will be displayed, "
+               . "then press X to confirm.`n"
+               . "번역된 자막이 표시될 위치와 크기에 맞춰 창을 조절한 후, "
+               . "우측 상단의 X 버튼을 눌러 확정해 주세요.`n"
 
     ; Get system border thickness caused by the +Resize option.
     borderX := DllCall("GetSystemMetrics", "Int", 32, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
