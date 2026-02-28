@@ -903,7 +903,8 @@ ShowTransOverlay(show) {
             borderX := DllCall("GetSystemMetrics", "Int", 32, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
             borderY := DllCall("GetSystemMetrics", "Int", 33, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
 
-            Overlay.Gui.GetPos(&curX, &curY, &curW, &curH)
+            Overlay.Gui.GetPos(&curX, &curY)
+            Overlay.Gui.GetClientPos(,, &curW, &curH)
 
             ; Restore logical coordinate mapping by adding back the border offsets
             Overlay.X := curX + borderX
