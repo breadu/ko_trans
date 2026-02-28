@@ -896,6 +896,30 @@ ShowTransOverlay(show) {
         UpdateTriggerHotkeys()
     } else {
         LogDebug("[System] Deactivating Subtitle Overlay.")
+
+        ; Save current position and size to Settings.ini before destruction
+        if (Overlay.HasProp("Gui") && WinExist("ahk_id " Overlay.Gui.Hwnd)) {
+            ; Calculate system border thickness (same as used in the show logic)
+            borderX := DllCall("GetSystemMetrics", "Int", 32, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+            borderY := DllCall("GetSystemMetrics", "Int", 33, "Int") + DllCall("GetSystemMetrics", "Int", 92, "Int")
+
+            Overlay.Gui.GetPos(&curX, &curY, &curW, &curH)
+
+            ; Restore logical coordinate mapping by adding back the border offsets
+            Overlay.X := curX + borderX
+            Overlay.Y := curY + borderY
+            Overlay.W := curW
+            Overlay.H := curH
+
+            ; Write updated position and dimensions to the INI file
+            IniWrite(Overlay.X, INI_FILE, CURRENT_PROFILE, INI_OVERLAY_X)
+            IniWrite(Overlay.Y, INI_FILE, CURRENT_PROFILE, INI_OVERLAY_Y)
+            IniWrite(Overlay.W, INI_FILE, CURRENT_PROFILE, INI_OVERLAY_W)
+            IniWrite(Overlay.H, INI_FILE, CURRENT_PROFILE, INI_OVERLAY_H)
+
+            LogDebug("[System] Overlay position updated for [" . CURRENT_PROFILE . "]: X=" . Overlay.X . " Y=" . Overlay.Y)
+        }
+
         Overlay.IsActive := false
         Overlay.IsBusy := false
         Overlay.PendingRequest := false
