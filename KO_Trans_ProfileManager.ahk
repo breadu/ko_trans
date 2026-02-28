@@ -2,6 +2,12 @@
 #SingleInstance Force
 
 ; ==============================================================================
+; Global Constants
+; ==============================================================================
+Global CURRENT_VERSION := "1.1.0"
+Global DEBUG_MODE := true
+
+; ==============================================================================
 ; Default Configuration Values
 ; ==============================================================================
 Global ENGINE_GEMINI := "Gemini"
@@ -108,7 +114,6 @@ Global INI_JAP_READ_VERTICAL := "JAP_READ_VERTICAL"
 ; ---------------------------------------------------------
 Global DebugLogFile := A_ScriptDir "\ko_trans_debug_log.txt"
 Global WasOverlayActiveBeforeGUI := false
-Global DEBUG_MODE := true
 
 Global INI_FILE := A_ScriptDir "\settings.ini"
 
@@ -185,7 +190,10 @@ ShowGateway() {
 
     ; --- Header ---
     Manager_Gateway.SetFont("s16 Bold c1E90FF", "Segoe UI")
-    Manager_Gateway.Add("Text", "x20 y15 w500 Center", "🥊 KO Trans - V1.1")
+    Manager_Gateway.Add("Text", "x20 y15 w350 Right", "🥊 KO Trans - V" . CURRENT_VERSION)
+
+    Manager_Gateway.SetFont("s9 Norm cWhite")
+    Manager_Gateway.Add("Button", "x385 y15 w80 h25", "업데이트").OnEvent("Click", (*) => CheckForUpdates(true))
 
     ; --- Mascot Section ---
     if FileExist(mascotPath) {
@@ -307,6 +315,66 @@ Manager_Cleanup() {
     Manager_CheckOverlay(false)
     if (originalWin && WinExist(originalWin)) {
         WinActivate(originalWin)
+    }
+}
+
+CheckForUpdates(manualCheck := false) {
+    global CURRENT_VERSION
+    repoUrl := "https://github.com/breadu/ko_trans"
+    apiUrl := "https://api.github.com/repos/breadu/ko_trans/releases/latest"
+
+    try {
+        whr := ComObject("WinHttp.WinHttpRequest.5.1")
+        whr.Open("GET", apiUrl, true)
+        whr.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        whr.Send()
+
+        if !whr.WaitForResponse(5) {
+            if (manualCheck) {
+                MsgBox("업데이트 서버 응답 시간이 초과되었습니다.", "오류", 4144)
+            }
+            return
+        }
+
+        if (whr.Status != 200) {
+            if (manualCheck) {
+                MsgBox("업데이트 확인 실패 (HTTP Status: " . whr.Status . ")", "오류", 4144)
+            }
+            return
+        }
+
+        if RegExMatch(whr.ResponseText, '"tag_name"\s*:\s*"([^"]+)"', &match) {
+            rawTag := match[1]
+            latestVersion := RegExReplace(rawTag, "i)[^0-9\.]", "")
+
+            if (latestVersion == "") {
+                if (manualCheck) {
+                    MsgBox("태그명(" . rawTag . ")에서 버전 숫자를 찾을 수 없습니다.", "알림", 4144)
+                }
+                return
+            }
+
+            ; Compare versions using built-in VerCompare
+            if VerCompare(latestVersion, CURRENT_VERSION) > 0 {
+                res := MsgBox("새로운 버전(V" . latestVersion . ")이 발견되었습니다!`n`n지금 업데이트 페이지로 이동하시겠습니까?", "업데이트 발견", 4132)
+                if (res == "Yes") {
+                    Run(repoUrl . "/releases/latest")
+                }
+            } else {
+                if (manualCheck) {
+                    MsgBox("현재 최신 버전(V" . CURRENT_VERSION . ")을 사용 중입니다.", "알림", 4160)
+                }
+            }
+        } else {
+            LogDebug("[Update] Parsing failed. Raw Response: " . SubStr(whr.ResponseText, 1, 200))
+            if (manualCheck) {
+                MsgBox("버전 정보를 찾을 수 없습니다.`n깃허브에 정식 Release가 등록되어 있는지 확인해 주세요.", "알림", 4144)
+            }
+        }
+    } catch Error as e {
+        if (manualCheck) {
+            MsgBox("업데이트 체크 중 에러 발생:`n" . e.Message, "오류", 4144)
+        }
     }
 }
 
