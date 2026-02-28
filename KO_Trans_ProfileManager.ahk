@@ -874,11 +874,11 @@ Manager_ShowEditor(TargetSection) {
 
     Manager_EditGui.Add("Text", "x45 y320", "OCR 시작 지연 시간:")
     C.EditOCRStartTime := Manager_EditGui.Add("Edit", "x165 y317 w50 Number cWhite Background1A1A1A", currOCRStartTime)
-    ud := Manager_EditGui.Add("UpDown", "Range200-2000 0x80", currOCRStartTime)
+    ud := Manager_EditGui.Add("UpDown", "Range200-5000 0x80", currOCRStartTime)
     ud.OnNotify(-722, (ctrl, lParam) => (
         delta := NumGet(lParam, A_PtrSize * 3 + 4, "Int"),
         newVal := ctrl.Value + (delta * 100),
-        (newVal >= 200 && newVal <= 2000) ? (ctrl.Value := newVal) : "",
+        (newVal >= 200 && newVal <= 5000) ? (ctrl.Value := newVal) : "",
         true
     ))
     Manager_EditGui.Add("Text", "x220 y320", "ms")
@@ -1499,8 +1499,8 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
     Global INI_FILE, Manager_EditGui
 
     valOCRStartTime := Integer(StrReplace(String(valOCRStartTime), ",", ""))
-    if (!IsNumber(valOCRStartTime) || valOCRStartTime < 200 || valOCRStartTime > 2000) {
-        MsgBox("OCR 시작 지연 시간은 200에서 2000 사이의 숫자여야 합니다!", "경고", 4096)
+    if (!IsNumber(valOCRStartTime) || valOCRStartTime < 200 || valOCRStartTime > 5000) {
+        MsgBox("OCR 시작 지연 시간은 200에서 5000 사이의 숫자여야 합니다!", "경고", 4096)
         return
     }
 
