@@ -611,6 +611,21 @@ Manager_ShowEditor(TargetSection) {
     currJapYomigana := IniRead(INI_FILE, TargetSection, INI_JAP_YOMIGANA, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_YOMIGANA, DEFAULT_JAP_YOMIGANA))
     currJapReadVertical := IniRead(INI_FILE, TargetSection, INI_JAP_READ_VERTICAL, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_READ_VERTICAL, DEFAULT_JAP_READ_VERTICAL))
 
+    ; Store initial state for change detection
+    InitialState := {
+        OCR_X: currX, OCR_Y: currY, OCR_W: currW, OCR_H: currH,
+        OV_X: currOverlayX, OV_Y: currOverlayY, OV_W: currOverlayW, OV_H: currOverlayH,
+        Lang: currLang, Engine: currEngine, Model: (currEngine == ENGINE_GEMINI ? currGeminiModel : (currEngine == ENGINE_OPENAI ? currGptModel : currLocalModel)),
+        Opacity: currOpacity, FontSize: currFontSize, FontColor: currFontColor,
+        DictEnabled: currDictEnabled, DictPath: currDictPath,
+        Yomigana: currJapYomigana, ReadVertical: currJapReadVertical,
+        Key: currKey, Mouse: currMouse, Pad: currPad,
+        GeminiKey: currGeminiKey, OpenAIKey: currOpenaiKey,
+        OCRStartTime: currOCRStartTime, AutoDetect: currAutoDetect,
+        ReadMode: currReadMode, ShowOcr: currShowOcr,
+        CaptureTarget: currCaptureTarget, CaptureProcess: currCaptureProcess, CaptureClass: currCaptureClass
+    }
+
     Manager_EditGui := Gui("+AlwaysOnTop -Caption +Border", "Editor")
     Manager_EditGui.BackColor := "0x1A1A1A"
 
@@ -628,9 +643,41 @@ Manager_ShowEditor(TargetSection) {
     Manager_EditGui.Add("Text", "x20 y15 w400", "🥊 설정: [" . displayTitle . "]")
 
     Manager_EditGui.SetFont("s10 Norm cWhite")
-    Manager_EditGui.Add("Button", "x475 y10 w25 h25", "X").OnEvent("Click", (*) => (Manager_Cleanup()))
 
-    C := {}
+    C := {} ; Controller container
+
+    ; Internal check to see if settings were modified
+    CheckModified() {
+        return Manager_CheckModification(C, InitialState, TargetSection)
+    }
+
+    ; Logic for handling exit attempts
+    HandleExit(*) {
+        if CheckModified() {
+            res := MsgBox("설정 사항이 변경되었습니다. 적용하시겠습니까?", "변경 감지", 4131)
+            if (res == "Yes") {
+                SaveAndApply(TargetSection,
+                    C.TxtOCR_X.Value, C.TxtOCR_Y.Value, C.TxtOCR_W.Value, C.TxtOCR_H.Value,
+                    C.TxtOV_X.Value, C.TxtOV_Y.Value, C.TxtOV_W.Value, C.TxtOV_H.Value,
+                    C.DDLLang.Text, C.DDLEngine.Text, C.EditModel.Value,
+                    C.SliderOpacity.Value, C.SliderFont.Value, C.TxtColorVal.Value,
+                    C.ChkDict.Value, C.TxtDictPath.Value,
+                    C.ChkJapYomigana.Value, C.ChkJapReadVertical.Value,
+                    C.ComboKey.Text, C.ComboMouse.Text, C.ComboPad.Text,
+                    (TargetSection==PROFILE_SETTINGS?C.EditGemini.Value:""),
+                    (TargetSection==PROFILE_SETTINGS?C.EditOpenAI.Value:""),
+                    C.EditOCRStartTime.Value, C.ChkAutoDetect.Value, C.DDLReadMode.Text, C.ChkShowOcr.Value,
+                    C.DDLCaptureTarget.Text, C.TxtCaptureProcess.Value, C.TxtCaptureClass.Value)
+            } else if (res == "No") {
+                Manager_Cleanup()
+            }
+            ; If Cancel, do nothing
+        } else {
+            Manager_Cleanup()
+        }
+    }
+
+    Manager_EditGui.Add("Button", "x475 y10 w25 h25", "X").OnEvent("Click", HandleExit)
 
     Tab := Manager_EditGui.Add("Tab3", "x10 y50 w490 h605 cWhite", ["기본 / 고급 설정", "출력 / 작동 제어"])
 
@@ -866,7 +913,7 @@ Manager_ShowEditor(TargetSection) {
     ; =========================================================================
     Tab.UseTab()
     BtnBack := Manager_EditGui.Add("Button", "x20 y665 w110 h40", "⬅ 뒤로")
-    BtnBack.OnEvent("Click", (*) => (Manager_EditGui.Destroy(), Manager_EditGui := 0, ShowGateway()))
+    BtnBack.OnEvent("Click", HandleExit)
 
     BtnReset := Manager_EditGui.Add("Button", "x195 y665 w110 h40", "🔄 초기화")
     BtnReset.OnEvent("Click", (*) => Manager_ResetToDefault(TargetSection, C))
@@ -932,6 +979,51 @@ StartWindowPicker() {
     Manager_EditGui.Show()
 
     return resultData
+}
+
+Manager_CheckModification(C, InitialState, TargetSection) {
+    uiDictPath := (C.TxtDictPath.Value == CHAR_DICT_NOT_SELECTED ? "NONE" : C.TxtDictPath.Value)
+    uiCaptureProcess := (C.TxtCaptureProcess.Value == "전체 화면" || C.TxtCaptureProcess.Value == "클립보드" || C.TxtCaptureProcess.Value == CAPTURE_WINDOW_NOT_SELECTED ? "NONE" : C.TxtCaptureProcess.Value)
+    uiCaptureClass := (C.TxtCaptureClass.Value == "" ? "NONE" : C.TxtCaptureClass.Value)
+
+    uiTargetMode := (C.DDLCaptureTarget.Text == "전체 화면" ? CAPTURE_TARGET_SCREEN : (C.DDLCaptureTarget.Text == "클립보드" ? CAPTURE_TARGET_CLIPBOARD : CAPTURE_TARGET_WINDOW))
+    uiReadMode := (C.DDLReadMode.Text == "노벨" ? READ_MODE_NVL : READ_MODE_ADV)
+
+    uiMouse := (C.ComboMouse.Text == "왼쪽 클릭" ? MOUSE_LBUTTON : C.ComboMouse.Text == "오른쪽 클릭" ? MOUSE_RBUTTON : MOUSE_NONE)
+    uiPad := (C.ComboPad.Text == "A버튼" ? PAD_JOY1 : C.ComboPad.Text == "B버튼" ? PAD_JOY2 : PAD_NONE)
+    uiKey := (C.ComboKey.Text == "없음" ? KEY_NONE : C.ComboKey.Text)
+
+    isChanged := (Integer(C.TxtOCR_X.Value) != InitialState.OCR_X || Integer(C.TxtOCR_Y.Value) != InitialState.OCR_Y
+               || Integer(C.TxtOCR_W.Value) != InitialState.OCR_W || Integer(C.TxtOCR_H.Value) != InitialState.OCR_H
+               || Integer(C.TxtOV_X.Value) != InitialState.OV_X || Integer(C.TxtOV_Y.Value) != InitialState.OV_Y
+               || Integer(C.TxtOV_W.Value) != InitialState.OV_W || Integer(C.TxtOV_H.Value) != InitialState.OV_H
+               || C.DDLLang.Text != InitialState.Lang
+               || C.DDLEngine.Text != InitialState.Engine
+               || C.EditModel.Value != InitialState.Model
+               || Integer(C.SliderOpacity.Value) != InitialState.Opacity
+               || Integer(C.SliderFont.Value) != InitialState.FontSize
+               || C.TxtColorVal.Value != InitialState.FontColor
+               || C.ChkDict.Value != InitialState.DictEnabled
+               || uiDictPath != InitialState.DictPath
+               || C.ChkJapYomigana.Value != InitialState.Yomigana
+               || C.ChkJapReadVertical.Value != InitialState.ReadVertical
+               || uiKey != InitialState.Key
+               || uiMouse != InitialState.Mouse
+               || uiPad != InitialState.Pad
+               || Integer(C.EditOCRStartTime.Value) != InitialState.OCRStartTime
+               || C.ChkAutoDetect.Value != InitialState.AutoDetect
+               || uiReadMode != InitialState.ReadMode
+               || C.ChkShowOcr.Value != InitialState.ShowOcr
+               || uiTargetMode != InitialState.CaptureTarget
+               || uiCaptureProcess != InitialState.CaptureProcess
+               || uiCaptureClass != InitialState.CaptureClass)
+
+    if (!isChanged && TargetSection == PROFILE_SETTINGS) {
+        if (C.EditGemini.Value != InitialState.GeminiKey || C.EditOpenAI.Value != InitialState.OpenAIKey)
+            isChanged := true
+    }
+
+    return isChanged
 }
 
 Manager_ChooseColor(DefaultColor := "FFFFFF") {
@@ -1093,16 +1185,18 @@ ShowCaptureArea(Target_X, Target_Y, Target_W, Target_H, SelectorColor, Mode, Pro
     OnConfirm(*) {
         global CaptureAreaGui
 
-        ; Retrieve accurate client area dimensions
-        WinGetClientPos(&cX, &cY, &outW, &outH, CaptureAreaGui.Hwnd)
+        ; Use WinGetPos and border correction (same as OverlayPreview logic) to prevent slight coordinate shifts
+        WinGetPos(&outX, &outY, &w, &h, CaptureAreaGui.Hwnd)
+        WinGetClientPos(, , &outW, &outH, CaptureAreaGui.Hwnd)
+
+        ; Restore the original screen coordinates by adding back the border offsets.
+        outX += borderX
+        outY += borderY
 
         ; In specific window mode, we must subtract the visible starting point of that window.
         if (Mode == "특정 윈도우" && tVisibleX != 0) {
-            outX := cX - tVisibleX
-            outY := cY - tVisibleY
-        } else {
-            outX := cX
-            outY := cY
+            outX -= tVisibleX
+            outY -= tVisibleY
         }
 
         Target_X.Value := outX, Target_Y.Value := outY, Target_W.Value := outW, Target_H.Value := outH
