@@ -185,7 +185,7 @@ ShowGateway() {
 
     ; --- Header ---
     Manager_Gateway.SetFont("s16 Bold c1E90FF", "Segoe UI")
-    Manager_Gateway.Add("Text", "x20 y15 w500 Center", "🥊 KO Trans - V1.0")
+    Manager_Gateway.Add("Text", "x20 y15 w500 Center", "🥊 KO Trans - V1.1")
 
     ; --- Mascot Section ---
     if FileExist(mascotPath) {
