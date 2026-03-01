@@ -712,7 +712,7 @@ Manager_ShowEditor(TargetSection) {
 
     Manager_EditGui.SetFont("s10 Norm cWhite")
 
-    C := {} ; Controller container
+    local C := {}
 
     ; Internal check to see if settings were modified
     CheckModified() {
@@ -744,8 +744,6 @@ Manager_ShowEditor(TargetSection) {
             Manager_Cleanup()
         }
     }
-
-    Manager_EditGui.Add("Button", "x475 y10 w25 h25", "X").OnEvent("Click", HandleExit)
 
     Tab := Manager_EditGui.Add("Tab3", "x10 y50 w490 h605 cWhite", ["기본 / 고급 설정", "출력 / 작동 제어"])
 
@@ -986,6 +984,8 @@ Manager_ShowEditor(TargetSection) {
     BtnReset := Manager_EditGui.Add("Button", "x195 y665 w110 h40", "🔄 초기화")
     BtnReset.OnEvent("Click", (*) => Manager_ResetToDefault(TargetSection, C))
 
+    Manager_EditGui.Add("Button", "x475 y10 w25 h25", "X").OnEvent("Click", HandleExit)
+
     BtnApply := Manager_EditGui.Add("Button", "x370 y665 w110 h40 Default", "✔ 적용")
     BtnApply.OnEvent("Click", (*) => SaveAndApply(TargetSection,
         C.TxtOCR_X.Value, C.TxtOCR_Y.Value, C.TxtOCR_W.Value, C.TxtOCR_H.Value,
@@ -1050,6 +1050,9 @@ StartWindowPicker() {
 }
 
 Manager_CheckModification(C, InitialState, TargetSection) {
+    if !C.HasProp("DDLLang")
+        return false
+
     uiDictPath := (C.TxtDictPath.Value == CHAR_DICT_NOT_SELECTED ? "NONE" : C.TxtDictPath.Value)
     uiCaptureProcess := (C.TxtCaptureProcess.Value == "전체 화면" || C.TxtCaptureProcess.Value == "클립보드" || C.TxtCaptureProcess.Value == CAPTURE_WINDOW_NOT_SELECTED ? "NONE" : C.TxtCaptureProcess.Value)
     uiCaptureClass := (C.TxtCaptureClass.Value == "" ? "NONE" : C.TxtCaptureClass.Value)

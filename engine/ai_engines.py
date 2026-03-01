@@ -17,6 +17,7 @@ class BaseEngine:
         # In-memory caches for frequently accessed data
         self.char_dict_cache = {}
         self.explanation_prompt_cache = None
+        self.system_prompt_cache = None
         self.api_key = ""
         self.dict_enabled = "0"
         self.dict_path = "NONE"
@@ -57,6 +58,7 @@ class BaseEngine:
         """Resets all memory caches when profile or settings change"""
         self.char_dict_cache = {}
         self.explanation_prompt_cache = None
+        self.system_prompt_cache = None
 
     def _get_explanation_prompt(self):
         """Loads system instruction for word analysis from the prompt file"""
@@ -139,39 +141,42 @@ class GeminiEngine(BaseEngine):
     def get_translation(self, text, profile="Settings", model_name="gemini-2.5-flash-lite"):
         """Story-optimized translation using character context and dialogue history"""
         if not self.client: return "⚠️ GEMINI_API_KEY가 설정되지 않았습니다! Gateway의 Global Settings에서 키를 먼저 입력해 주세요!"
-        current_dict_str = self._get_character_dict_str(profile)
 
-        # Dynamic system prompt selection based on dictionary availability
-        if current_dict_str:
-            story_prompt = (
-                "You are a professional story translator. Translate the text into natural Korean.\n\n"
-                "### RULES:\n"
-                "1. **TRANSLATE EVERYTHING**: Do not skip, summarize, or omit any part. Translate narrative and dialogue fully.\n"
-                "2. Output ONLY the Korean translation. NO introduction, NO explanation, NO conversational filler.\n"
-                "3. **NAME TAG FORMAT (STRICT)**: Apply the 'Name:' format ONLY when a character name is explicitly written in brackets (e.g., [Name], 『Name』, or 「Name」) at the very start of the source line. \n"
-                "4. **NO INFERRED NAMES**: If a line of dialogue does not have a name explicitly attached to it in the source text, DO NOT add, guess, or infer a name tag. Translate it as a simple quote.\n\n"
-                "### RULES for NAMES:\n"
-                "1. **STRICT VERBATIM NAMES**: Use the name exactly as it is used in the source text. If only a given name is used, use only the given name. If only a surname is used, use only the surname. **NEVER expand to a full name unless it is written as a full name in the source.**\n"
-                "2. **DICTIONARY AS SPELLING REFERENCE ONLY**: Use the provided character dictionary only to find the correct Korean spelling for the specific name mentioned. Do not use other parts of the dictionary entry that are not in the source.\n"
-                "3. **PRESERVE HONORIFICS**: If the source includes honorifics (like -san, -kun, -sama), translate them naturally into Korean (씨, 군, 님 등).\n"
-                "4. **NEVER ADD NAMES**: It is a critical failure to add a character name (e.g., '하루코:') if it is not present in the original text. Keep the original structure perfectly.\n\n"
-                "5. Do not infer or add any information about the characters that is not explicitly present in the current input text.\n\n"
-                "### CHARACTER REFERENCE TABLE:\n"
-                f"{current_dict_str}"
-            )
-        else:
-            story_prompt = (
-                "You are a professional story translator specializing in creative media.\n"
-                "Translate the provided text into natural, immersive Korean.\n\n"
-                "### RULES:\n"
-                "1. **TRANSLATE ALL TEXT**: Do not skip or omit any part of the input. Every sentence, including descriptions and narrative, must be fully translated.\n"
-                "2. Output ONLY the Korean translation. NO intro/outro.\n"
-                "3. **NAME TAG FORMAT**: If the source text starts with a name in brackets, format it as 'Name:' followed by the dialogue.\n"
-                "4. Maintain the original tone and emotional nuance of the story."
-            )
+        # Re-use cached system prompt if available
+        if not self.system_prompt_cache:
+            current_dict_str = self._get_character_dict_str(profile)
+
+            # Dynamic system prompt selection based on dictionary availability
+            if current_dict_str:
+                self.system_prompt_cache = (
+                    "You are a professional story translator. Translate the text into natural Korean.\n\n"
+                    "### RULES:\n"
+                    "1. **TRANSLATE EVERYTHING**: Do not skip, summarize, or omit any part. Translate narrative and dialogue fully.\n"
+                    "2. Output ONLY the Korean translation. NO introduction, NO explanation, NO conversational filler.\n"
+                    "3. **NAME TAG FORMAT (STRICT)**: Apply the 'Name:' format ONLY when a character name is explicitly written in brackets (e.g., [Name], 『Name』, or 「Name」) at the very start of the source line. \n"
+                    "4. **NO INFERRED NAMES**: If a line of dialogue does not have a name explicitly attached to it in the source text, DO NOT add, guess, or infer a name tag. Translate it as a simple quote.\n\n"
+                    "### RULES for NAMES:\n"
+                    "1. **STRICT VERBATIM NAMES**: Use the name exactly as it is used in the source text. If only a given name is used, use only the given name. If only a surname is used, use only the surname. **NEVER expand to a full name unless it is written as a full name in the source.**\n"
+                    "2. **DICTIONARY AS SPELLING REFERENCE ONLY**: Use the provided character dictionary only to find the correct Korean spelling for the specific name mentioned. Do not use other parts of the dictionary entry that are not in the source.\n"
+                    "3. **PRESERVE HONORIFICS**: If the source includes honorifics (like -san, -kun, -sama), translate them naturally into Korean (씨, 군, 님 등).\n"
+                    "4. **NEVER ADD NAMES**: It is a critical failure to add a character name (e.g., '하루코:') if it is not present in the original text. Keep the original structure perfectly.\n\n"
+                    "5. Do not infer or add any information about the characters that is not explicitly present in the current input text.\n\n"
+                    "### CHARACTER REFERENCE TABLE:\n"
+                    f"{current_dict_str}"
+                )
+            else:
+                self.system_prompt_cache = (
+                    "You are a professional story translator specializing in creative media.\n"
+                    "Translate the provided text into natural, immersive Korean.\n\n"
+                    "### RULES:\n"
+                    "1. **TRANSLATE ALL TEXT**: Do not skip or omit any part of the input. Every sentence, including descriptions and narrative, must be fully translated.\n"
+                    "2. Output ONLY the Korean translation. NO intro/outro.\n"
+                    "3. **NAME TAG FORMAT**: If the source text starts with a name in brackets, format it as 'Name:' followed by the dialogue.\n"
+                    "4. Maintain the original tone and emotional nuance of the story."
+                )
 
         try:
-            # Limits context window to the last 10 turns to balance performance and relevancy
+            # Limits context window to the last 5 turns to balance performance and relevancy
             history_len = len(self.history[-5:])
             log(f"[Gemini] Requesting: {model_name} | Profile: {profile} | History context: {history_len} turns")
 
@@ -181,7 +186,7 @@ class GeminiEngine(BaseEngine):
                 model=model_name or "gemini-2.5-flash-lite",
                 contents=contents,
                 config=types.GenerateContentConfig(
-                    system_instruction=story_prompt,
+                    system_instruction=self.system_prompt_cache,
                     # Disable all safety settings to prevent blocking of adult game dialogue.
                     safety_settings=[
                         types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
@@ -201,7 +206,7 @@ class GeminiEngine(BaseEngine):
                     return "⚠️ [검열됨] 부적절한 콘텐츠로 인해 번역이 차단되었습니다."
 
                 self.history.extend([{"role":"user","content":text}, {"role":"assistant","content":res}])
-                if len(self.history) > 20: self.history = self.history[-20:]
+                if len(self.history) > 10: self.history = self.history[-10:]
                 return res
             else:
                 log("[Warning] Gemini response blocked completely. Not adding to history.")
@@ -251,40 +256,42 @@ class ChatGPTEngine(BaseEngine):
         if not self.client:
             return "⚠️ OPENAI_API_KEY가 설정되지 않았습니다! Global Settings에서 키를 입력해 주세요."
 
-        dict_str = self._get_character_dict_str(profile)
-        if dict_str:
-            system_content = (
-                "You are a professional story translator. Translate the text into natural Korean.\n\n"
-                "### RULES:\n"
-                "1. **TRANSLATE EVERYTHING**: Do not skip, summarize, or omit any part. Translate narrative and dialogue fully.\n"
-                "2. Output ONLY the Korean translation. NO introduction, NO explanation, NO conversational filler.\n"
-                "3. **NAME TAG FORMAT (STRICT)**: Apply the 'Name:' format ONLY when a character name is explicitly written in brackets (e.g., [Name], 『Name』, or 「Name」) at the very start of the source line. \n"
-                "4. **NO INFERRED NAMES**: If a line of dialogue does not have a name explicitly attached to it in the source text, DO NOT add, guess, or infer a name tag. Translate it as a simple quote.\n\n"
-                "### RULES for NAMES:\n"
-                "1. **STRICT VERBATIM NAMES**: Use the name exactly as it is used in the source text. If only a given name is used, use only the given name. If only a surname is used, use only the surname. **NEVER expand to a full name unless it is written as a full name in the source.**\n"
-                "2. **DICTIONARY AS SPELLING REFERENCE ONLY**: Use the provided character dictionary only to find the correct Korean spelling for the specific name mentioned. Do not use other parts of the dictionary entry that are not in the source.\n"
-                "3. **PRESERVE HONORIFICS**: If the source includes honorifics (like -san, -kun, -sama), translate them naturally into Korean (씨, 군, 님 등).\n"
-                "4. **NEVER ADD NAMES**: It is a critical failure to add a character name (e.g., '하루코:') if it is not present in the original text. Keep the original structure perfectly.\n\n"
-                "5. Do not infer or add any information about the characters that is not explicitly present in the current input text.\n\n"
-                "### CHARACTER REFERENCE TABLE:\n"
-                f"{dict_str}"
-            )
-        else:
-            system_content = (
-                "You are a professional story translator specializing in creative media.\n"
-                "Translate the provided text into natural, immersive Korean.\n\n"
-                "### RULES:\n"
-                "1. **TRANSLATE ALL TEXT**: Do not skip or omit any part of the input. Every sentence, including descriptions and narrative, must be fully translated.\n"
-                "2. Output ONLY the Korean translation. NO intro/outro.\n"
-                "3. **NAME TAG FORMAT**: If the source text starts with a name in brackets, format it as 'Name:' followed by the dialogue.\n"
-                "4. Maintain the original tone and emotional nuance of the story."
-            )
+        # Re-use cached system prompt if available
+        if not self.system_prompt_cache:
+            dict_str = self._get_character_dict_str(profile)
+            if dict_str:
+                self.system_prompt_cache = (
+                    "You are a professional story translator. Translate the text into natural Korean.\n\n"
+                    "### RULES:\n"
+                    "1. **TRANSLATE EVERYTHING**: Do not skip, summarize, or omit any part. Translate narrative and dialogue fully.\n"
+                    "2. Output ONLY the Korean translation. NO introduction, NO explanation, NO conversational filler.\n"
+                    "3. **NAME TAG FORMAT (STRICT)**: Apply the 'Name:' format ONLY when a character name is explicitly written in brackets (e.g., [Name], 『Name』, or 「Name」) at the very start of the source line. \n"
+                    "4. **NO INFERRED NAMES**: If a line of dialogue does not have a name explicitly attached to it in the source text, DO NOT add, guess, or infer a name tag. Translate it as a simple quote.\n\n"
+                    "### RULES for NAMES:\n"
+                    "1. **STRICT VERBATIM NAMES**: Use the name exactly as it is used in the source text. If only a given name is used, use only the given name. If only a surname is used, use only the surname. **NEVER expand to a full name unless it is written as a full name in the source.**\n"
+                    "2. **DICTIONARY AS SPELLING REFERENCE ONLY**: Use the provided character dictionary only to find the correct Korean spelling for the specific name mentioned. Do not use other parts of the dictionary entry that are not in the source.\n"
+                    "3. **PRESERVE HONORIFICS**: If the source includes honorifics (like -san, -kun, -sama), translate them naturally into Korean (씨, 군, 님 등).\n"
+                    "4. **NEVER ADD NAMES**: It is a critical failure to add a character name (e.g., '하루코:') if it is not present in the original text. Keep the original structure perfectly.\n\n"
+                    "5. Do not infer or add any information about the characters that is not explicitly present in the current input text.\n\n"
+                    "### CHARACTER REFERENCE TABLE:\n"
+                    f"{dict_str}"
+                )
+            else:
+                self.system_prompt_cache = (
+                    "You are a professional story translator specializing in creative media.\n"
+                    "Translate the provided text into natural, immersive Korean.\n\n"
+                    "### RULES:\n"
+                    "1. **TRANSLATE ALL TEXT**: Do not skip or omit any part of the input. Every sentence, including descriptions and narrative, must be fully translated.\n"
+                    "2. Output ONLY the Korean translation. NO intro/outro.\n"
+                    "3. **NAME TAG FORMAT**: If the source text starts with a name in brackets, format it as 'Name:' followed by the dialogue.\n"
+                    "4. Maintain the original tone and emotional nuance of the story."
+                )
 
         try:
             history_len = len(self.history[-5:])
             log(f"[ChatGPT] Requesting: {model_name} | Profile: {profile} | History turns: {history_len}")
 
-            messages = [{"role": "system", "content": system_content}]
+            messages = [{"role": "system", "content": self.system_prompt_cache}]
             messages.extend(self.history[-5:])
             messages.append({"role": "user", "content": text})
 
@@ -297,8 +304,8 @@ class ChatGPTEngine(BaseEngine):
                 return "⚠️ [검열됨] OpenAI 정책에 의해 번역이 거부되었습니다. (로컬 엔진 사용 권장)"
 
             self.history.extend([{"role":"user","content":text}, {"role":"assistant","content":res}])
-            if len(self.history) > 20:
-                self.history = self.history[-20:]
+            if len(self.history) > 10:
+                self.history = self.history[-10:]
 
             return res
         except Exception as e:
@@ -333,40 +340,45 @@ class LocalEngine(BaseEngine):
         return json.loads(response.choices[0].message.content)
 
     def get_translation(self, text, profile="Settings", model_name="gemma3:12b"):
-        current_dict_str = self._get_character_dict_str(profile)
-        if current_dict_str:
-            story_prompt = (
-                "You are a professional story translator. Translate the text into natural Korean.\n\n"
-                "### RULES:\n"
-                "1. **TRANSLATE EVERYTHING**: Do not skip, summarize, or omit any part. Translate narrative and dialogue fully.\n"
-                "2. Output ONLY the Korean translation. NO introduction, NO explanation, NO conversational filler.\n"
-                "3. **NAME TAG FORMAT (STRICT)**: Apply the 'Name:' format ONLY when a character name is explicitly written in brackets (e.g., [Name], 『Name』, or 「Name」) at the very start of the source line. \n"
-                "4. **NO INFERRED NAMES**: If a line of dialogue does not have a name explicitly attached to it in the source text, DO NOT add, guess, or infer a name tag. Translate it as a simple quote.\n\n"
-                "### RULES for NAMES:\n"
-                "1. **STRICT VERBATIM NAMES**: Use the name exactly as it is used in the source text. If only a given name is used, use only the given name. If only a surname is used, use only the surname. **NEVER expand to a full name unless it is written as a full name in the source.**\n"
-                "2. **DICTIONARY AS SPELLING REFERENCE ONLY**: Use the provided character dictionary only to find the correct Korean spelling for the specific name mentioned. Do not use other parts of the dictionary entry that are not in the source.\n"
-                "3. **PRESERVE HONORIFICS**: If the source includes honorifics (like -san, -kun, -sama), translate them naturally into Korean (씨, 군, 님 등).\n"
-                "4. **NEVER ADD NAMES**: It is a critical failure to add a character name (e.g., '하루코:') if it is not present in the original text. Keep the original structure perfectly.\n\n"
-                "5. Do not infer or add any information about the characters that is not explicitly present in the current input text.\n\n"
-                "### CHARACTER REFERENCE TABLE:\n"
-                f"{current_dict_str}"
-            )
-        else:
-            story_prompt = (
-                "You are a professional story translator specializing in creative media.\n"
-                "Translate the provided text into natural, immersive Korean.\n\n"
-                "### RULES:\n"
-                "1. **TRANSLATE ALL TEXT**: Do not skip or omit any part of the input. Every sentence, including descriptions and narrative, must be fully translated.\n"
-                "2. Output ONLY the Korean translation. NO intro/outro.\n"
-                "3. DO NOT explain the grammar or context.\n"
-                "4. **NAME TAG FORMAT**: If the source text starts with a name in brackets, format it as 'Name:' followed by the dialogue.\n"
-                "4. Maintain the original tone and emotional nuance of the story."
-            )
+        # Use cached system prompt to enable Prefix Caching in Ollama.
+        # The prompt remains identical across calls for the same profile.
+        if not self.system_prompt_cache:
+            current_dict_str = self._get_character_dict_str(profile)
+            if current_dict_str:
+                self.system_prompt_cache = (
+                    "You are a professional story translator. Translate the text into natural Korean.\n\n"
+                    "### RULES:\n"
+                    "1. **TRANSLATE EVERYTHING**: Do not skip, summarize, or omit any part. Translate narrative and dialogue fully.\n"
+                    "2. Output ONLY the Korean translation. NO introduction, NO explanation, NO conversational filler.\n"
+                    "3. **NAME TAG FORMAT (STRICT)**: Apply the 'Name:' format ONLY when a character name is explicitly written in brackets (e.g., [Name], 『Name』, or 「Name」) at the very start of the source line. \n"
+                    "4. **NO INFERRED NAMES**: If a line of dialogue does not have a name explicitly attached to it in the source text, DO NOT add, guess, or infer a name tag. Translate it as a simple quote.\n\n"
+                    "### RULES for NAMES:\n"
+                    "1. **STRICT VERBATIM NAMES**: Use the name exactly as it is used in the source text. If only a given name is used, use only the given name. If only a surname is used, use only the surname. **NEVER expand to a full name unless it is written as a full name in the source.**\n"
+                    "2. **DICTIONARY AS SPELLING REFERENCE ONLY**: Use the provided character dictionary only to find the correct Korean spelling for the specific name mentioned. Do not use other parts of the dictionary entry that are not in the source.\n"
+                    "3. **PRESERVE HONORIFICS**: If the source includes honorifics (like -san, -kun, -sama), translate them naturally into Korean (씨, 군, 님 등).\n"
+                    "4. **NEVER ADD NAMES**: It is a critical failure to add a character name (e.g., '하루코:') if it is not present in the original text. Keep the original structure perfectly.\n\n"
+                    "5. Do not infer or add any information about the characters that is not explicitly present in the current input text.\n\n"
+                    "### CHARACTER REFERENCE TABLE:\n"
+                    f"{current_dict_str}"
+                )
+            else:
+                self.system_prompt_cache = (
+                    "You are a professional story translator specializing in creative media.\n"
+                    "Translate the provided text into natural, immersive Korean.\n\n"
+                    "### RULES:\n"
+                    "1. **TRANSLATE ALL TEXT**: Do not skip or omit any part of the input. Every sentence, including descriptions and narrative, must be fully translated.\n"
+                    "2. Output ONLY the Korean translation. NO intro/outro.\n"
+                    "3. DO NOT explain the grammar or context.\n"
+                    "4. **NAME TAG FORMAT**: If the source text starts with a name in brackets, format it as 'Name:' followed by the dialogue.\n"
+                    "4. Maintain the original tone and emotional nuance of the story."
+                )
+            log(f"[Local] System prompt constructed and cached for profile: {profile}")
 
         try:
-            log(f"[Local] Ollama Request: {model_name} | Profile: {profile} | History turns: {len(self.history[-5:])}")
-            messages = [{"role": "system", "content": story_prompt}]
-            messages.extend(self.history[-5:])
+            log(f"[Local] Ollama Request: {model_name} | Profile: {profile} | History turns: {len(self.history[-3:])}")
+            # Use the cached system_prompt_cache. Ollama will reuse the KV cache for this prefix.
+            messages = [{"role": "system", "content": self.system_prompt_cache}]
+            messages.extend(self.history[-3:])
             messages.append({"role": "user", "content": text})
             response = self.client.chat.completions.create(model=model_name or "gemma3:12b", messages=messages)
             raw = response.choices[0].message.content.strip()
@@ -379,7 +391,7 @@ class LocalEngine(BaseEngine):
                     cleaned_text = cleaned_text.split(phrase)[-1].strip(": ").strip()
 
             self.history.extend([{"role":"user","content":text}, {"role":"assistant","content":cleaned_text}])
-            if len(self.history) > 20: self.history = self.history[-20:]
+            if len(self.history) > 10: self.history = self.history[-10:]
             return cleaned_text
         except Exception as e:
             error_msg = str(e).lower()
