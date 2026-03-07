@@ -1,5 +1,5 @@
 ================================================================================
-                                KO Trans v1.0
+                                KO Trans v1.2
                          Developed by Breadu Soft
 ================================================================================
 
@@ -29,7 +29,16 @@ authors for their contributions to the AI and development community.
     via ONNX optimized inference.
 
 --------------------------------------------------------------------------------
-3. Frameworks and Libraries
+3. Japanese Retro Game OCR: MeikiOCR
+--------------------------------------------------------------------------------
+* Project: https://github.com/rtr46/meikiocr
+* License: MIT License
+* Copyright (c) 2024 rtr46
+* Description: Specialized OCR engine for high-accuracy recognition of 
+    Japanese retro video game fonts using object detection techniques.
+
+--------------------------------------------------------------------------------
+4. Frameworks and Libraries
 --------------------------------------------------------------------------------
 * AutoHotkey v2: GNU General Public License (GPL) v2.0.
     (https://www.autohotkey.com/)
@@ -53,7 +62,7 @@ authors for their contributions to the AI and development community.
     Licensed under Creative Commons Attribution-ShareAlike 3.0 Unported.
 
 --------------------------------------------------------------------------------
-4. Special Thanks
+5. Special Thanks
 --------------------------------------------------------------------------------
 * To the developers of Google Gemini, OpenAI ChatGPT, and Ollama for providing
     the AI translation backends that power this application.

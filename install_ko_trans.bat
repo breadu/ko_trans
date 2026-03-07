@@ -71,23 +71,56 @@ set VENV_PYTHON="%~dp0engine\venv\Scripts\python.exe"
 
 echo 가상환경 연결 및 라이브러리 설치 중...
 %VENV_PYTHON% -m pip install --upgrade pip
-%VENV_PYTHON% -m pip install fastapi uvicorn pydantic google-genai openai PySide6 scikit-learn requests numpy opencv-python Pillow onnxruntime mecab-python3 unidic-lite fugashi
+%VENV_PYTHON% -m pip install fastapi uvicorn pydantic google-genai openai PySide6 scikit-learn requests numpy opencv-python Pillow onnxruntime mecab-python3 unidic-lite fugashi meikiocr
 
 :ASK_GPU
+set "INSTALLED_VER=NONE"
+%VENV_PYTHON% -m pip show paddlepaddle-gpu >nul 2>&1
+if %errorlevel% equ 0 set "INSTALLED_VER=GPU"
+
+%VENV_PYTHON% -m pip show paddlepaddle >nul 2>&1
+if %errorlevel% equ 0 (
+    if "%INSTALLED_VER%"=="NONE" set "INSTALLED_VER=CPU"
+)
+
 echo.
 echo ------------------------------------------------------
+if "%INSTALLED_VER%"=="GPU" (
+    echo [상태] 이미 paddlepaddle-gpu ^(GPU 가속 버전^)가 설치되어 있습니다.
+) else if "%INSTALLED_VER%"=="CPU" (
+    echo [상태] 이미 paddlepaddle ^(CPU 전용 버전^)가 설치되어 있습니다.
+) else (
+    echo [상태] 현재 설치된 PaddleOCR 라이브러리가 없습니다.
+)
+echo.
 echo 그래픽카드 [NVIDIA GPU] 가속을 사용하시겠습니까?
-echo [CUDA 12.9 및 cuDNN 설치가 완료된 상태여야 합니다.]
+echo [CUDA 12.x 및 cuDNN 설치가 완료된 상태여야 합니다.]
 echo 외장 그래픽카드가 있다면 'Y'를, 잘 모르겠다면 'N'을 누르세요.
-echo [N을 선택하면 CPU 모드로 설치됩니다.]
+echo (이미 설치된 버전과 같은 것을 선택하면 설치를 건너뜁니다.)
 echo ------------------------------------------------------
 set /p gpu_choice="선택 [Y/N]: "
 
-if /i "%gpu_choice%"=="Y" goto INSTALL_GPU
-if /i "%gpu_choice%"=="N" goto INSTALL_CPU
+if /i "%gpu_choice%"=="Y" (
+    if "%INSTALLED_VER%"=="GPU" (
+        echo.
+        echo 이미 GPU 버전이 설치되어 있어 라이브러리 설치를 건너뜁니다.
+        goto DOWNLOAD_MODELS_GPU
+    )
+    goto INSTALL_GPU
+)
+
+if /i "%gpu_choice%"=="N" (
+    if "%INSTALLED_VER%"=="CPU" (
+        echo.
+        echo 이미 CPU 버전이 설치되어 있어 라이브러리 설치를 건너뜁니다.
+        goto DOWNLOAD_MODELS_CPU
+    )
+    goto INSTALL_CPU
+)
 goto ASK_GPU
 
 :INSTALL_GPU
+echo.
 echo GPU 버전 라이브러리 설치를 시작합니다...
 %VENV_PYTHON% -m pip uninstall -y paddlepaddle paddlepaddle-gpu onnxruntime onnxruntime-gpu
 %VENV_PYTHON% -m pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
@@ -95,23 +128,28 @@ echo GPU 버전 라이브러리 설치를 시작합니다...
 %VENV_PYTHON% -m pip uninstall -y onnxruntime
 %VENV_PYTHON% -m pip install onnxruntime-gpu
 
+:DOWNLOAD_MODELS_GPU
 echo.
-echo OCR 모델 파일을 미리 다운로드합니다. [잠시만 기다려 주세요]
+echo OCR 모델 파일을 체크하고 필요한 경우 다운로드합니다...
 %VENV_PYTHON% -c "from paddleocr import PaddleOCR; PaddleOCR(lang='en', device='gpu', use_angle_cls=True, ocr_version='PP-OCRv5'); PaddleOCR(lang='japan', device='gpu', use_angle_cls=True, ocr_version='PP-OCRv5')"
 goto FINISH
 
 :INSTALL_CPU
+echo.
 echo CPU 버전 라이브러리 설치를 시작합니다...
 %VENV_PYTHON% -m pip uninstall -y paddlepaddle paddlepaddle-gpu
 %VENV_PYTHON% -m pip install paddlepaddle paddleocr
+
+:DOWNLOAD_MODELS_CPU
 echo.
-echo OCR 모델 파일을 미리 다운로드합니다. [잠시만 기다려 주세요]
+echo OCR 모델 파일을 체크하고 필요한 경우 다운로드합니다...
 %VENV_PYTHON% -c "from paddleocr import PaddleOCR; PaddleOCR(lang='en', device='cpu', use_angle_cls=True, ocr_version='PP-OCRv5'); PaddleOCR(lang='japan', device='cpu', use_angle_cls=True, ocr_version='PP-OCRv5')"
 goto FINISH
 
 :FINISH
+echo.
 echo ======================================================
-echo 모든 설치가 완료되었습니다!
+echo 모든 설치 및 라이브러리 체크가 완료되었습니다!
 echo 이제 창을 닫고 KO_Trans.ahk를 실행해 주세요.
 echo ======================================================
 pause

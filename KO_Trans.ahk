@@ -219,8 +219,11 @@ InitializeSettings() {
         IniWrite(DEFAULT_JAP_YOMIGANA, INI_FILE, PROFILE_SETTINGS, INI_JAP_YOMIGANA)
         IniWrite(DEFAULT_JAP_READ_VERTICAL, INI_FILE, PROFILE_SETTINGS, INI_JAP_READ_VERTICAL)
 
+        ; OCR Engine
+        IniWrite(DEFAULT_OCR_ENGINE, INI_FILE, PROFILE_SETTINGS, INI_OCR_ENGINE)
+
         ; Engine and Models
-        IniWrite(DEFAULT_ENGINE, INI_FILE, PROFILE_SETTINGS, INI_ENGINE)
+        IniWrite(DEFAULT_TRANS_ENGINE, INI_FILE, PROFILE_SETTINGS, INI_TRANS_ENGINE)
         IniWrite(DEFAULT_GEMINI_MODEL, INI_FILE, PROFILE_SETTINGS, INI_GEMINI_MODEL)
         IniWrite(DEFAULT_GPT_MODEL, INI_FILE, PROFILE_SETTINGS, INI_GPT_MODEL)
         IniWrite(DEFAULT_LOCAL_MODEL, INI_FILE, PROFILE_SETTINGS, INI_LOCAL_MODEL)
@@ -280,6 +283,9 @@ LoadProfileSettings(forceProc := "") {
     Global OCR_LANG := IniRead(INI_FILE, targetProc, INI_LANG, IniRead(INI_FILE, PROFILE_SETTINGS, INI_LANG, DEFAULT_LANG))
     Global JAP_YOMIGANA := IniRead(INI_FILE, targetProc, INI_JAP_YOMIGANA, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_YOMIGANA, DEFAULT_JAP_YOMIGANA))
     Global JAP_READ_VERTICAL := IniRead(INI_FILE, targetProc, INI_JAP_READ_VERTICAL, IniRead(INI_FILE, PROFILE_SETTINGS, INI_JAP_READ_VERTICAL, DEFAULT_JAP_READ_VERTICAL))
+
+    Global OCR_ENGINE := IniRead(INI_FILE, targetProc, INI_OCR_ENGINE, IniRead(INI_FILE, PROFILE_SETTINGS, INI_OCR_ENGINE, DEFAULT_OCR_ENGINE))
+    Global TRANS_ENGINE := IniRead(INI_FILE, targetProc, INI_TRANS_ENGINE, IniRead(INI_FILE, PROFILE_SETTINGS, INI_TRANS_ENGINE, DEFAULT_TRANS_ENGINE))
 
     ; Dictionary settings
     Global CHAR_DICT_ENABLED := IniRead(INI_FILE, targetProc, INI_CHAR_DICT_ENABLED, IniRead(INI_FILE, PROFILE_SETTINGS, INI_CHAR_DICT_ENABLED, DEFAULT_CHAR_DICT_ENABLED))
@@ -742,7 +748,7 @@ TriggerOCRForWord(imgInfo) {
         http.SetTimeouts(1000, 1000, 1000, 3000)
         http.Open("POST", OCR_SERVER_URL, false)
         http.SetRequestHeader("Content-Type", "application/json")
-        payload := '{"w": ' imgInfo.w ', "h": ' imgInfo.h '}'
+        payload := '{"w": ' imgInfo.w ', "h": ' imgInfo.h ', "engine": "' OCR_ENGINE '"}'
         http.Send(payload)
 
         return http.ResponseText
@@ -1075,7 +1081,7 @@ TriggerOCRForTranslate() {
                     http_detect.SetTimeouts(1000, 1000, 1000, 3000)
                     http_detect.Open("POST", StrReplace(OCR_SERVER_URL, "/ocr", "/detect"), false)
                     http_detect.SetRequestHeader("Content-Type", "application/json")
-                    payload := '{"w": ' imgInfo.w ', "h": ' imgInfo.h '}'
+                    payload := '{"w": ' imgInfo.w ', "h": ' imgInfo.h ', "engine": "' OCR_ENGINE '"}'
                     http_detect.Send(payload)
 
                     ; Parse simplified detection string "count,area,typical_h"
@@ -1135,7 +1141,7 @@ TriggerOCRForTranslate() {
                     http.SetTimeouts(1000, 1000, 1000, 3000)
                     http.Open("POST", OCR_SERVER_URL, false)
                     http.SetRequestHeader("Content-Type", "application/json")
-                    payload := '{"w": ' imgInfo.w ', "h": ' imgInfo.h '}'
+                    payload := '{"w": ' imgInfo.w ', "h": ' imgInfo.h ', "engine": "' OCR_ENGINE '"}'
                     http.Send(payload)
 
                     if !http.WaitForResponse(30) {
@@ -1641,10 +1647,11 @@ GetAreaHash(x, y, w, h, hwnd := 0) {
 
 ; Forward text to the chosen AI translation engine
 Translate(inputText, profileName := PROFILE_SETTINGS) {
-    currentEngine := IniRead(INI_FILE, profileName, "ENGINE", DEFAULT_ENGINE)
-    targetModel := (currentEngine = ENGINE_GEMINI) ? GEMINI_MODEL : (currentEngine = ENGINE_OPENAI) ? GPT_MODEL : LOCAL_MODEL
+    Global TRANS_ENGINE
 
-    LogDebug("[Translate] Engine: " . currentEngine . " | Model: " . targetModel . " | Input: " . SubStr(inputText, 1, 40) . "...")
+    targetModel := (TRANS_ENGINE == ENGINE_GEMINI) ? GEMINI_MODEL : (TRANS_ENGINE == ENGINE_OPENAI) ? GPT_MODEL : LOCAL_MODEL
+
+    LogDebug("[Translate] Engine: " . TRANS_ENGINE . " | Model: " . targetModel . " | Input: " . SubStr(inputText, 1, 40) . "...")
 
     safeText := inputText
     safeText := StrReplace(safeText, "\", "\\")
@@ -1708,8 +1715,7 @@ Translate(inputText, profileName := PROFILE_SETTINGS) {
 ; ---------------------------------------------------------
 UpdateTriggerHotkeys() {
     global ActiveHotkeys, KEY_TRIGGER, MOUSE_TRIGGER, PAD_TRIGGER, Overlay
-    global CAPTURE_TARGET, CAPTURE_TARGET_CLIPBOARD
-    global AUTO_DETECT_ENABLED := IniRead(INI_FILE, CURRENT_PROFILE, "AUTO_DETECT_ENABLED", IniRead(INI_FILE, PROFILE_SETTINGS, "AUTO_DETECT_ENABLED", "0"))
+    global CAPTURE_TARGET, CAPTURE_TARGET_CLIPBOARD, AUTO_DETECT_ENABLED
 
     for hk in ActiveHotkeys
         try Hotkey(hk, "Off")
@@ -1855,13 +1861,12 @@ DragTransWindow(wParam, lParam, msg, hwnd) {
 
 ; Launch or update the standalone Python study overlay
 SendToAIWordOverlay(text) {
-    Global originalWin, CURRENT_PROFILE, INI_FILE, DEFAULT_ENGINE
+    Global originalWin, CURRENT_PROFILE, INI_FILE, TRANS_ENGINE
     Global GEMINI_MODEL, GPT_MODEL, LOCAL_MODEL
 
     BigToolTip("🔍 AI 단어 분석을 시작합니다...", 2000)
 
-    currentEngine := IniRead(INI_FILE, CURRENT_PROFILE, "ENGINE", IniRead(INI_FILE, PROFILE_SETTINGS, "ENGINE", DEFAULT_ENGINE))
-    targetModel := (currentEngine == "Gemini") ? GEMINI_MODEL : (currentEngine == "ChatGPT") ? GPT_MODEL : LOCAL_MODEL
+    targetModel := (TRANS_ENGINE == ENGINE_GEMINI) ? GEMINI_MODEL : (TRANS_ENGINE == ENGINE_OPENAI) ? GPT_MODEL : LOCAL_MODEL
 
     static targetTitle := "🥊 KO Trans"
     DetectHiddenWindows(true)
@@ -1871,7 +1876,7 @@ SendToAIWordOverlay(text) {
         pythonPath := A_ScriptDir "\engine\venv\Scripts\pythonw.exe"
         clientPath := A_ScriptDir "\engine\overlay_client.py"
         LogDebug("[System] Starting Python client overlay...")
-        Run('"' . pythonPath . '" "' . clientPath . '" "' . safeText . '" "' . currentEngine . '" "' . targetModel . '"')
+        Run('"' . pythonPath . '" "' . clientPath . '" "' . safeText . '" "' . TRANS_ENGINE . '" "' . targetModel . '"')
 
         if !WinWait(targetTitle, , 5) {
             LogDebug("[Error] Failed to start Python Overlay client.")
@@ -1885,7 +1890,7 @@ SendToAIWordOverlay(text) {
         return
     }
 
-    combinedData := text . "|" . currentEngine . "|" . targetModel
+    combinedData := text . "|" . TRANS_ENGINE . "|" . targetModel
 
     ptrText := Buffer(StrLen(combinedData) * 2 + 2)
     StrPut(combinedData, ptrText, "UTF-16")
@@ -1912,7 +1917,7 @@ UpdateOverlayToActiveProfile(forceProc := "", doReload := true) {
     IniWrite(CURRENT_PROFILE, INI_FILE, PROFILE_SETTINGS, "ACTIVE_PROFILE")
 
     if (doReload) {
-        ReloadEngine()
+        ReloadOcrEngine()
     }
 
     if (Overlay.IsActive && Overlay.HasProp("Gui") && WinExist("ahk_id " Overlay.Gui.Hwnd)) {

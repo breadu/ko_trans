@@ -10,6 +10,12 @@ Global DEBUG_MODE := true
 ; ==============================================================================
 ; Default Configuration Values
 ; ==============================================================================
+Global LANG_ENGLISH := "eng"
+Global LANG_JAPANESE := "jap"
+
+Global OCR_ENGINE_PADDLE := "Paddle"
+Global OCR_ENGINE_MEIKI := "Meiki"
+
 Global ENGINE_GEMINI := "Gemini"
 Global ENGINE_OPENAI := "ChatGPT"
 Global ENGINE_LOCAL := "Local"
@@ -41,8 +47,9 @@ Global DEFAULT_OVERLAY_X := 100
 Global DEFAULT_OVERLAY_Y := 50
 Global DEFAULT_OVERLAY_W := 1200
 Global DEFAULT_OVERLAY_H := 300
-Global DEFAULT_LANG := "eng"
-Global DEFAULT_ENGINE := ENGINE_GEMINI
+Global DEFAULT_LANG := LANG_ENGLISH
+Global DEFAULT_OCR_ENGINE := OCR_ENGINE_PADDLE
+Global DEFAULT_TRANS_ENGINE := ENGINE_GEMINI
 Global DEFAULT_OVERLAY_OPACITY := 180
 Global DEFAULT_OVERLAY_FONT_SIZE := 20
 Global DEFAULT_OVERLAY_FONT_COLOR := "FFFFFF"
@@ -83,7 +90,8 @@ Global INI_OCR_Y := "OCR_Y"
 Global INI_OCR_W := "OCR_W"
 Global INI_OCR_H := "OCR_H"
 Global INI_LANG := "LANG"
-Global INI_ENGINE := "ENGINE"
+Global INI_OCR_ENGINE := "OCR_ENGINE"
+Global INI_TRANS_ENGINE := "ENGINE"
 Global INI_OVERLAY_X := "OVERLAY_X"
 Global INI_OVERLAY_Y := "OVERLAY_Y"
 Global INI_OVERLAY_W := "OVERLAY_W"
@@ -182,7 +190,7 @@ ShowGateway() {
     originalWin := WinExist("A")
     Manager_CheckOverlay(true)
 
-    deviceStatus := Manager_GetEngineStatus()
+    deviceStatus := Manager_GetOcrEngineStatus()
     statusColor := (deviceStatus == "GPU") ? "c4CAF50" : (deviceStatus == "CPU") ? "cFFB300" : "cGray"
 
     Manager_Gateway := Gui("+AlwaysOnTop -Caption +Border", "Gateway")
@@ -221,7 +229,7 @@ ShowGateway() {
     BtnReload.OnEvent("Click", (*) => (
         Manager_Gateway.Destroy(),
         Manager_Gateway := 0,
-        ReloadEngine(),
+        ReloadOcrEngine(),
         ShowGateway()
     ))
 
@@ -262,7 +270,7 @@ ShowGateway() {
 }
 
 ; Asks Python server for current execution device
-Manager_GetEngineStatus() {
+Manager_GetOcrEngineStatus() {
     try {
         whr := ComObject("WinHttp.WinHttpRequest.5.1")
         whr.Open("GET", "http://127.0.0.1:5000/health", true)
@@ -273,7 +281,7 @@ Manager_GetEngineStatus() {
                 return match[1]
         }
     }
-    LogDebug("[Manager] Engine Status Check Failed - Offline")
+    LogDebug("[Manager] OCR Engine Status Check Failed - Offline")
     return "오프라인"
 }
 
@@ -429,7 +437,8 @@ Manager_CreateProfile() {
     IniWrite(DEFAULT_OVERLAY_H, INI_FILE, newName, INI_OVERLAY_H)
 
     IniWrite(DEFAULT_LANG, INI_FILE, newName, INI_LANG)
-    IniWrite(DEFAULT_ENGINE, INI_FILE, newName, INI_ENGINE)
+    IniWrite(DEFAULT_OCR_ENGINE, INI_FILE, newName, INI_OCR_ENGINE)
+    IniWrite(DEFAULT_TRANS_ENGINE, INI_FILE, newName, INI_TRANS_ENGINE)
     IniWrite(DEFAULT_GEMINI_MODEL, INI_FILE, newName, INI_GEMINI_MODEL)
     IniWrite(DEFAULT_GPT_MODEL, INI_FILE, newName, INI_GPT_MODEL)
     IniWrite(DEFAULT_LOCAL_MODEL, INI_FILE, newName, INI_LOCAL_MODEL)
@@ -512,7 +521,7 @@ Manager_ShowList() {
             continue
         }
         lang := IniRead(INI_FILE, A_LoopField, INI_LANG, "-")
-        engine := IniRead(INI_FILE, A_LoopField, INI_ENGINE, "-")
+        engine := IniRead(INI_FILE, A_LoopField, INI_TRANS_ENGINE, "-")
         LV.Add("", A_LoopField, lang, engine)
     }
 
@@ -648,13 +657,14 @@ Manager_ShowEditor(TargetSection) {
     currOverlayH := IniRead(INI_FILE, TargetSection, INI_OVERLAY_H, IniRead(INI_FILE, PROFILE_SETTINGS, INI_OVERLAY_H, DEFAULT_OVERLAY_H))
 
     currLang := IniRead(INI_FILE, TargetSection, INI_LANG, IniRead(INI_FILE, PROFILE_SETTINGS, INI_LANG, DEFAULT_LANG))
-    currEngine := IniRead(INI_FILE, TargetSection, INI_ENGINE, IniRead(INI_FILE, PROFILE_SETTINGS, INI_ENGINE, DEFAULT_ENGINE))
+    currOcrEngine := IniRead(INI_FILE, TargetSection, INI_OCR_ENGINE, IniRead(INI_FILE, PROFILE_SETTINGS, INI_OCR_ENGINE, DEFAULT_OCR_ENGINE))
+    currTransEngine := IniRead(INI_FILE, TargetSection, INI_TRANS_ENGINE, IniRead(INI_FILE, PROFILE_SETTINGS, INI_TRANS_ENGINE, DEFAULT_TRANS_ENGINE))
 
     currKey := IniRead(INI_FILE, TargetSection, INI_KEY_TRIGGER, IniRead(INI_FILE, PROFILE_SETTINGS, INI_KEY_TRIGGER, DEFAULT_KEY_TRIGGER))
     currMouse := IniRead(INI_FILE, TargetSection, INI_MOUSE_TRIGGER, IniRead(INI_FILE, PROFILE_SETTINGS, INI_MOUSE_TRIGGER, DEFAULT_MOUSE_TRIGGER))
     currPad := IniRead(INI_FILE, TargetSection, INI_PAD_TRIGGER, IniRead(INI_FILE, PROFILE_SETTINGS, INI_PAD_TRIGGER, DEFAULT_PAD_TRIGGER))
 
-    engineIdx := (currEngine == ENGINE_GEMINI ? 1 : (currEngine == ENGINE_OPENAI ? 2 : 3))
+    transEngineIdx := (currTransEngine == ENGINE_GEMINI ? 1 : (currTransEngine == ENGINE_OPENAI ? 2 : 3))
 
     currOpacity := IniRead(INI_FILE, TargetSection, INI_OVERLAY_OPACITY, IniRead(INI_FILE, PROFILE_SETTINGS, INI_OVERLAY_OPACITY, DEFAULT_OVERLAY_OPACITY))
     currFontSize := IniRead(INI_FILE, TargetSection, INI_OVERLAY_FONT_SIZE, IniRead(INI_FILE, PROFILE_SETTINGS, INI_OVERLAY_FONT_SIZE, DEFAULT_OVERLAY_FONT_SIZE))
@@ -683,7 +693,7 @@ Manager_ShowEditor(TargetSection) {
     InitialState := {
         OCR_X: currX, OCR_Y: currY, OCR_W: currW, OCR_H: currH,
         OV_X: currOverlayX, OV_Y: currOverlayY, OV_W: currOverlayW, OV_H: currOverlayH,
-        Lang: currLang, Engine: currEngine, Model: (currEngine == ENGINE_GEMINI ? currGeminiModel : (currEngine == ENGINE_OPENAI ? currGptModel : currLocalModel)),
+        Lang: currLang, OcrEngine: currOcrEngine, TransEngine: currTransEngine, Model: (currTransEngine == ENGINE_GEMINI ? currGeminiModel : (currTransEngine == ENGINE_OPENAI ? currGptModel : currLocalModel)),
         Opacity: currOpacity, FontSize: currFontSize, FontColor: currFontColor,
         DictEnabled: currDictEnabled, DictPath: currDictPath,
         Yomigana: currJapYomigana, ReadVertical: currJapReadVertical,
@@ -727,7 +737,8 @@ Manager_ShowEditor(TargetSection) {
                 SaveAndApply(TargetSection,
                     C.TxtOCR_X.Value, C.TxtOCR_Y.Value, C.TxtOCR_W.Value, C.TxtOCR_H.Value,
                     C.TxtOV_X.Value, C.TxtOV_Y.Value, C.TxtOV_W.Value, C.TxtOV_H.Value,
-                    C.DDLLang.Text, C.DDLEngine.Text, C.EditModel.Value,
+                    C.DDLLang.Text, (C.RadioMeiki.Value ? OCR_ENGINE_MEIKI : OCR_ENGINE_PADDLE),
+                    C.DDLEngine.Text, C.EditModel.Value,
                     C.SliderOpacity.Value, C.SliderFont.Value, C.TxtColorVal.Value,
                     C.ChkDict.Value, C.TxtDictPath.Value,
                     C.ChkJapYomigana.Value, C.ChkJapReadVertical.Value,
@@ -770,17 +781,63 @@ Manager_ShowEditor(TargetSection) {
 
     Manager_EditGui.Add("GroupBox", "x20 y" . yStart . " w470 h85 cGray", "번역 언어")
     Manager_EditGui.Add("Text", "x35 y" . (yStart + 32) . " w40", "언어:")
-    C.DDLLang := Manager_EditGui.Add("DropDownList", "x85 y" . (yStart + 29) . " w80 Choose" (currLang == "eng" ? 1 : 2), ["eng", "jap"])
+    C.DDLLang := Manager_EditGui.Add("DropDownList", "x85 y" . (yStart + 29) . " w80 Choose" (currLang == LANG_ENGLISH ? 1 : 2), [LANG_ENGLISH, LANG_JAPANESE])
     C.ChkJapYomigana := Manager_EditGui.Add("CheckBox", "x220 y" . (yStart + 32) . " cWhite " (currJapYomigana == "1" ? "Checked" : ""), "일본어에서 한자 요미가나 추가")
     C.ChkJapReadVertical := Manager_EditGui.Add("CheckBox", "x220 y" . (yStart + 52) . " cWhite " (currJapReadVertical == "1" ? "Checked" : ""), "일본어 세로읽기 지원")
 
-    yAI := yStart + 95
+    yOcrEngine := yStart + 95
+    Manager_EditGui.Add("GroupBox", "x20 y" . yOcrEngine . " w470 h80 cGray", "OCR 엔진")
+    Manager_EditGui.SetFont("s9 cGray")
+    Manager_EditGui.Add("Text", "x35 y" . (yOcrEngine + 25) . " w430", "Meiki OCR은 일본어 가로 읽기만 지원. 고전 게임 폰트 인식률 좋음")
+    Manager_EditGui.SetFont("s10 Norm cWhite")
+    ; Radio buttons are mutually exclusive by default in AHK v2 when added consecutively
+    C.RadioPaddle := Manager_EditGui.Add("Radio", "x35 y" . (yOcrEngine + 48) . (currOcrEngine == OCR_ENGINE_PADDLE ? " Checked" : ""), "Paddle OCR")
+    C.RadioMeiki := Manager_EditGui.Add("Radio", "x210 y" . (yOcrEngine + 48) . (currOcrEngine == OCR_ENGINE_MEIKI ? " Checked" : ""), "Meiki OCR")
+
+    if (currOcrEngine == OCR_ENGINE_MEIKI) {
+        C.ChkJapReadVertical.Value := 0
+        C.ChkJapReadVertical.Enabled := false
+    }
+
+    C.RadioMeiki.OnEvent("Click", (*) => (
+        C.ChkJapReadVertical.Value := 0,
+        C.ChkJapReadVertical.Enabled := false
+        LogDebug("[Manager] Meiki selected: Vertical Reading disabled.")
+    ))
+
+    C.RadioPaddle.OnEvent("Click", (*) => (
+        C.ChkJapReadVertical.Enabled := true
+        LogDebug("[Manager] Paddle selected: Vertical Reading enabled.")
+    ))
+
+    if (C.DDLLang.Text == LANG_ENGLISH) {
+        C.RadioMeiki.Enabled := false
+        if (currOcrEngine == OCR_ENGINE_MEIKI) {
+            C.RadioPaddle.Value := 1
+            C.RadioMeiki.Value := 0
+        }
+    }
+
+    UpdateOcrEngineState(ctrl, *) {
+        if (ctrl.Text == LANG_ENGLISH) {
+            C.RadioMeiki.Enabled := false
+            C.RadioMeiki.Value := 0
+            C.RadioPaddle.Value := 1
+        } else {
+            C.RadioMeiki.Enabled := true
+        }
+    }
+
+    C.DDLLang.OnEvent("Change", UpdateOcrEngineState)
+
+    ; Adjusting Y-coordinates for subsequent boxes (shifted by +90)
+    yAI := yOcrEngine + 90
     Manager_EditGui.Add("GroupBox", "x20 y" . yAI . " w470 h65 cGray", "번역 AI 엔진")
     Manager_EditGui.Add("Text", "x35 y" . (yAI + 32) . " w40", "엔진:")
-    C.DDLEngine := Manager_EditGui.Add("DropDownList", "x85 y" . (yAI + 29) . " w100 Choose" engineIdx, [ENGINE_GEMINI, ENGINE_OPENAI, ENGINE_LOCAL])
+    C.DDLEngine := Manager_EditGui.Add("DropDownList", "x85 y" . (yAI + 29) . " w100 Choose" transEngineIdx, [ENGINE_GEMINI, ENGINE_OPENAI, ENGINE_LOCAL])
 
     Manager_EditGui.Add("Text", "x210 y" . (yAI + 32) . " w40", "모델:")
-    initialModel := (currEngine == ENGINE_GEMINI ? currGeminiModel : (currEngine == ENGINE_OPENAI ? currGptModel : currLocalModel))
+    initialModel := (currTransEngine == ENGINE_GEMINI ? currGeminiModel : (currTransEngine == ENGINE_OPENAI ? currGptModel : currLocalModel))
     C.EditModel := Manager_EditGui.Add("Edit", "x255 y" . (yAI + 29) . " w210 Background1A1A1A cWhite", initialModel)
 
     ; Dynamic model name switcher cache
@@ -990,7 +1047,8 @@ Manager_ShowEditor(TargetSection) {
     BtnApply.OnEvent("Click", (*) => SaveAndApply(TargetSection,
         C.TxtOCR_X.Value, C.TxtOCR_Y.Value, C.TxtOCR_W.Value, C.TxtOCR_H.Value,
         C.TxtOV_X.Value, C.TxtOV_Y.Value, C.TxtOV_W.Value, C.TxtOV_H.Value,
-        C.DDLLang.Text, C.DDLEngine.Text, C.EditModel.Value,
+        C.DDLLang.Text, (C.RadioMeiki.Value ? OCR_ENGINE_MEIKI : OCR_ENGINE_PADDLE),
+        C.DDLEngine.Text, C.EditModel.Value,
         C.SliderOpacity.Value, C.SliderFont.Value, C.TxtColorVal.Value,
         C.ChkDict.Value, C.TxtDictPath.Value,
         C.ChkJapYomigana.Value,
@@ -1053,6 +1111,8 @@ Manager_CheckModification(C, InitialState, TargetSection) {
     if !C.HasProp("DDLLang")
         return false
 
+    uiOcrEngine := (C.RadioMeiki.Value ? OCR_ENGINE_MEIKI : OCR_ENGINE_PADDLE)
+
     uiDictPath := (C.TxtDictPath.Value == CHAR_DICT_NOT_SELECTED ? "NONE" : C.TxtDictPath.Value)
     uiCaptureProcess := (C.TxtCaptureProcess.Value == "전체 화면" || C.TxtCaptureProcess.Value == "클립보드" || C.TxtCaptureProcess.Value == CAPTURE_WINDOW_NOT_SELECTED ? "NONE" : C.TxtCaptureProcess.Value)
     uiCaptureClass := (C.TxtCaptureClass.Value == "" ? "NONE" : C.TxtCaptureClass.Value)
@@ -1069,7 +1129,8 @@ Manager_CheckModification(C, InitialState, TargetSection) {
                || Integer(C.TxtOV_X.Value) != InitialState.OV_X || Integer(C.TxtOV_Y.Value) != InitialState.OV_Y
                || Integer(C.TxtOV_W.Value) != InitialState.OV_W || Integer(C.TxtOV_H.Value) != InitialState.OV_H
                || C.DDLLang.Text != InitialState.Lang
-               || C.DDLEngine.Text != InitialState.Engine
+               || uiOcrEngine != InitialState.OcrEngine
+               || C.DDLEngine.Text != InitialState.TransEngine
                || C.EditModel.Value != InitialState.Model
                || Integer(C.SliderOpacity.Value) != InitialState.Opacity
                || Integer(C.SliderFont.Value) != InitialState.FontSize
@@ -1441,6 +1502,10 @@ Manager_ResetToDefault(TargetSection, C) {
     C.TxtOV_X.Value := DEFAULT_OVERLAY_X, C.TxtOV_Y.Value := DEFAULT_OVERLAY_Y, C.TxtOV_W.Value := DEFAULT_OVERLAY_W, C.TxtOV_H.Value := DEFAULT_OVERLAY_H
 
     C.DDLLang.Choose(1)
+
+    C.RadioPaddle.Value := 1
+    C.RadioMeiki.Value := 0
+
     C.DDLEngine.Choose(1)
     C.ChkJapYomigana.Value := DEFAULT_JAP_YOMIGANA
     C.ChkJapReadVertical.Value := DEFAULT_JAP_READ_VERTICAL
@@ -1496,7 +1561,7 @@ Manager_IsValidPath(FilePath) {
 }
 
 ; Saves configuration and notifies Python server if critical settings changed
-SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverlayW, valOverlayH, valLang, valEngine, valModel,
+SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverlayW, valOverlayH, valLang, valOcrEngine, valTransEngine, valModel,
     valOpacity, valFontSize, valFontColor, valDictEnabled, valDictPath, valJapYomigana, valJapReadVertical, valKey, valMouse, valPad,
     valGemini, valOpenAI, valOCRStartTime, valAutoDetect, valReadMode, valShowOcr, valCaptureTarget, valCaptureProcess, valCaptureClass) {
     Global INI_FILE, Manager_EditGui
@@ -1534,10 +1599,10 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
 
     try {
         oldCaptureTarget := IniRead(INI_FILE, Section, "CAPTURE_TARGET", CAPTURE_TARGET_SCREEN)
-        modelKey := (valEngine == ENGINE_GEMINI ? INI_GEMINI_MODEL : (valEngine == ENGINE_OPENAI ? INI_GPT_MODEL : INI_LOCAL_MODEL))
+        modelKey := (valTransEngine == ENGINE_GEMINI ? INI_GEMINI_MODEL : (valTransEngine == ENGINE_OPENAI ? INI_GPT_MODEL : INI_LOCAL_MODEL))
         oldModel := IniRead(INI_FILE, Section, modelKey, "")
         oldLang := IniRead(INI_FILE, Section, INI_LANG, "")
-        oldEngine := IniRead(INI_FILE, Section, INI_ENGINE, "")
+        oldTransEngine := IniRead(INI_FILE, Section, INI_TRANS_ENGINE, "")
         oldDictEn := IniRead(INI_FILE, Section, INI_CHAR_DICT_ENABLED, "")
         oldDictPath := IniRead(INI_FILE, Section, INI_CHAR_DICT_PATH, "")
         oldJapReadVertical := IniRead(INI_FILE, Section, INI_JAP_READ_VERTICAL, "")
@@ -1547,13 +1612,13 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         oldOpenAI := (Section == PROFILE_SETTINGS) ? IniRead(INI_FILE, PROFILE_SETTINGS, INI_OPENAI_API_KEY, "") : ""
 
         ; Check if changes require immediate Python engine refresh
-        isServerRequired := (valLang != oldLang || valEngine != oldEngine || valModel != oldModel
+        isServerRequired := (valLang != oldLang || valTransEngine != oldTransEngine || valModel != oldModel
                             || valDictEnabled != oldDictEn || valDictPath != oldDictPath
                             || valReadMode != oldReadMode || valJapReadVertical != oldJapReadVertical
                             || (Section == PROFILE_SETTINGS && (valGemini != oldGemini || valOpenAI != oldOpenAI)))
         if (isServerRequired) {
             reloadReason := (valLang != oldLang ? "[Lang] " : "") .
-            (valEngine != oldEngine ? "[Engine] " : "") . (valModel != oldModel ? "[Model] " : "") .
+            (valTransEngine != oldTransEngine ? "[TransEngine] " : "") . (valModel != oldModel ? "[Model] " : "") .
             (valDictEnabled != oldDictEn ? "[DictToggle] " : "") . (valDictPath != oldDictPath ? "[DictPath] " : "") .
             (valReadMode != oldReadMode ? "[ReadMode] " : "") . (valJapReadVertical != oldJapReadVertical ? "[JapReadVertical] " : "")
 
@@ -1571,7 +1636,9 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
         IniWrite(valW, INI_FILE, Section, INI_OCR_W), IniWrite(valH, INI_FILE, Section, INI_OCR_H)
         IniWrite(valOverlayX, INI_FILE, Section, INI_OVERLAY_X), IniWrite(valOverlayY, INI_FILE, Section, INI_OVERLAY_Y)
         IniWrite(valOverlayW, INI_FILE, Section, INI_OVERLAY_W), IniWrite(valOverlayH, INI_FILE, Section, INI_OVERLAY_H)
-        IniWrite(valLang, INI_FILE, Section, INI_LANG), IniWrite(valEngine, INI_FILE, Section, INI_ENGINE)
+        IniWrite(valLang, INI_FILE, Section, INI_LANG)
+        IniWrite(valOcrEngine, INI_FILE, Section, INI_OCR_ENGINE)
+        IniWrite(valTransEngine, INI_FILE, Section, INI_TRANS_ENGINE)
         IniWrite(valOpacity, INI_FILE, Section, INI_OVERLAY_OPACITY), IniWrite(valFontSize, INI_FILE, Section, INI_OVERLAY_FONT_SIZE)
         IniWrite(valFontColor, INI_FILE, Section, INI_OVERLAY_FONT_COLOR)
         IniWrite(valDictEnabled, INI_FILE, Section, INI_CHAR_DICT_ENABLED), IniWrite(valDictPath, INI_FILE, Section, INI_CHAR_DICT_PATH)
@@ -1609,7 +1676,7 @@ SaveAndApply(Section, valX, valY, valW, valH, valOverlayX, valOverlayY, valOverl
     }
 }
 
-ReloadEngine() {
+ReloadOcrEngine() {
     global OCR_SERVER_URL, ENGINE_DEVICE_MODE
 
     try {

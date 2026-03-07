@@ -14,6 +14,7 @@ import asyncio
 import mmap
 import fugashi
 import re
+from meikiocr import MeikiOCR
 
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -49,6 +50,7 @@ shm_obj = mmap.mmap(-1, SHM_SIZE, tagname=SHM_NAME)
 # --- Define the Initialization Function ---
 g_ocr = None
 g_session = None
+g_meiki = None
 g_read_mode = "ADV"
 g_is_jap_read_vertical = False
 g_engine_name = "Gemini"
@@ -89,7 +91,7 @@ def init_craft_engine():
 
 def init_ocr_engine():
     """Reads settings.ini and initializes the OCR engine based on ACTIVE_PROFILE."""
-    global g_ocr, g_last_crop_pos, g_current_device, g_read_mode, g_is_jap_read_vertical, g_engine_name, g_jap_tagger, g_active_profile
+    global g_ocr, g_meiki, g_last_crop_pos, g_current_device, g_read_mode, g_is_jap_read_vertical, g_engine_name, g_jap_tagger, g_active_profile
 
     g_last_crop_pos = {'x': -1, 'y': -1}
     config = configparser.ConfigParser()
@@ -132,6 +134,13 @@ def init_ocr_engine():
             log(f"--- [Warning] INI Read Error: {e} ---")
 
     if lang_from_ini == 'jap':
+        try:
+            g_meiki = MeikiOCR()
+            log("--- 🌐 OCR Engine: MeikiOCR (JAPAN) Initialized ---")
+        except Exception as e:
+            log(f"--- [Error] MeikiOCR Init failed: {e} ---")
+            g_meiki = None
+
         if g_jap_tagger is None:
             try:
                 g_jap_tagger = fugashi.Tagger()
@@ -139,6 +148,7 @@ def init_ocr_engine():
             except Exception as e:
                 log(f"[Error] Failed to initialize fugashi: {e}")
     else:
+        g_meiki = None
         # Release tagger to save memory when switching to English mode
         g_jap_tagger = None
 
@@ -580,10 +590,12 @@ async def do_detect(request: Request):
 @app.post("/ocr")
 async def do_ocr(request: Request):
     """Endpoint with Axis-Swapped RTL text assembly support."""
-    global g_ocr, g_typical_h
+    global g_ocr, g_meiki, g_typical_h
     try:
         data = await request.json()
         w, h = data.get("w"), data.get("h")
+        engine_req = data.get("engine", "Paddle")
+
         if not w or not h: return PlainTextResponse("0,0,0")
 
         raw_data = await read_shm_with_flag(w, h)
@@ -645,7 +657,18 @@ async def do_ocr(request: Request):
 
         if not img_list: return PlainTextResponse("")
 
-        rec_results = await asyncio.to_thread(lambda: list(engine.predict(img_list)))
+        # Process recognition based on engine settings
+        if engine_req == "Meiki" and g_meiki and not is_vert:
+            log(f"[OCR] Using MeikiOCR as requested by client.")
+            rec_results = []
+            for sub_img in img_list:
+                meiki_res = await asyncio.to_thread(g_meiki.run_ocr, sub_img)
+                line_text = "".join([r['text'] for r in meiki_res]) if meiki_res else ""
+                rec_results.append({'rec_text': line_text, 'rec_score': 1.0 if line_text else 0.0})
+        else:
+            # Default prediction using PaddleOCR
+            log(f"[OCR] Using PaddleOCR (Requested: {engine_req}, Vert: {is_vert})")
+            rec_results = await asyncio.to_thread(lambda: list(engine.predict(img_list)))
 
         raw_boxes = []
         for i, res in enumerate(rec_results):
