@@ -130,7 +130,7 @@ def init_ocr_engine():
             else:
                 g_is_jap_read_vertical = False
 
-            log(f"[Config] Cached Settings -> Profile: {active_profile}, Mode: {g_read_mode}, ReadVertical: {g_jap_read_vertical}, Engine: {g_engine_name}")
+            log(f"[Config] Cached Settings -> Profile: {active_profile}, Mode: {g_read_mode}, ReadVertical: {g_is_jap_read_vertical}, Engine: {g_engine_name}")
 
         except Exception as e:
             log(f"--- [Warning] INI Read Error: {e} ---")
@@ -939,5 +939,4 @@ def get_jap_furigana(text):
 if __name__ == '__main__':
     log("[System] KO Trans FastAPI Server starting on 127.0.0.1:5000...")
 
-    # Start FastAPI server using Uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=5000, log_level="error")
+    uvicorn.run(app, host="127.0.0.1", port=5000, log_level="error", use_colors=False)

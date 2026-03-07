@@ -99,6 +99,7 @@ class BaseEngine:
 
 class GeminiEngine(BaseEngine):
     def __init__(self):
+        self.client = None
         super().__init__()
 
     def reload_settings(self, profile_name=None):
@@ -108,8 +109,15 @@ class GeminiEngine(BaseEngine):
 
         log(f"[Gemini] Settings reloaded for profile: {profile_name}")
         self._clear_caches()
+
+        # Keep track of old API key to avoid redundant client re-initialization
+        old_key = self.api_key
         self._load_ini_settings(profile_name, 'GEMINI_API_KEY')
-        self.client = self._setup_client()
+
+        # Only recreate client if the key has changed or client doesn't exist
+        if self.client is None or old_key != self.api_key:
+            self.client = self._setup_client()
+
         self.history = []
 
     def _setup_client(self):
@@ -130,9 +138,6 @@ class GeminiEngine(BaseEngine):
             config=types.GenerateContentConfig(
                 system_instruction=self._get_explanation_prompt(),
                 response_mime_type="application/json",
-                #thinking_config=types.ThinkingConfig(
-                #    thinking_level="low"
-                #)
             )
         )
 
@@ -218,6 +223,7 @@ class GeminiEngine(BaseEngine):
 
 class ChatGPTEngine(BaseEngine):
     def __init__(self):
+        self.client = None
         super().__init__()
 
     def reload_settings(self, profile_name=None):
@@ -226,8 +232,12 @@ class ChatGPTEngine(BaseEngine):
             profile_name = self._get_active_profile_from_ini()
 
         self._clear_caches()
+        old_key = self.api_key
         self._load_ini_settings(profile_name, 'OPENAI_API_KEY')
-        self.client = self._setup_client()
+
+        if self.client is None or old_key != self.api_key:
+            self.client = self._setup_client()
+
         self.history = []
 
     def _setup_client(self):
