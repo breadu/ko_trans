@@ -51,6 +51,7 @@ shm_obj = mmap.mmap(-1, SHM_SIZE, tagname=SHM_NAME)
 g_ocr = None
 g_session = None
 g_meiki = None
+g_lang = "eng"
 g_read_mode = "ADV"
 g_is_jap_read_vertical = False
 g_engine_name = "Gemini"
@@ -91,7 +92,7 @@ def init_craft_engine():
 
 def init_ocr_engine():
     """Reads settings.ini and initializes the OCR engine based on ACTIVE_PROFILE."""
-    global g_ocr, g_meiki, g_last_crop_pos, g_current_device, g_read_mode, g_is_jap_read_vertical, g_engine_name, g_jap_tagger, g_active_profile
+    global g_ocr, g_meiki, g_lang, g_last_crop_pos, g_current_device, g_read_mode, g_is_jap_read_vertical, g_engine_name, g_jap_tagger, g_active_profile
 
     g_last_crop_pos = {'x': -1, 'y': -1}
     config = configparser.ConfigParser()
@@ -120,6 +121,7 @@ def init_ocr_engine():
 
             lang_from_ini = config.get(active_profile, 'LANG',
                                      fallback=config.get('Settings', 'LANG', fallback='eng'))
+            g_lang = lang_from_ini
 
             g_active_profile = active_profile
 
@@ -659,10 +661,14 @@ async def do_ocr(request: Request):
 
         # Process recognition based on engine settings
         if engine_req == "Meiki" and g_meiki and not is_vert:
-            log(f"[OCR] Using MeikiOCR as requested by client.")
+            log(f"[OCR] Using MeikiOCR Recognition Mode (Bypassing Detection).")
             rec_results = []
             for sub_img in img_list:
-                meiki_res = await asyncio.to_thread(g_meiki.run_ocr, sub_img)
+                try:
+                    meiki_res = await asyncio.to_thread(g_meiki.run_recognition, [sub_img])
+                except AttributeError:
+                    meiki_res = await asyncio.to_thread(g_meiki.run_ocr, sub_img)
+
                 line_text = "".join([r['text'] for r in meiki_res]) if meiki_res else ""
                 rec_results.append({'rec_text': line_text, 'rec_score': 1.0 if line_text else 0.0})
         else:
@@ -715,7 +721,11 @@ async def do_ocr(request: Request):
                 curr_row.sort(key=lambda b: b['x'])
                 rows.append(curr_row)
                 raw_boxes = remaining
-            final_text = " ".join(["".join([b['text'] for b in r]) for r in rows]).strip()
+
+            if g_lang == "jap":
+                final_text = "".join(["".join([b['text'] for b in r]) for r in rows]).strip()
+            else:
+                final_text = " ".join(["".join([b['text'] for b in r]) for r in rows]).strip()
 
         if len(final_text) >= 5 and pending_val > 0:
             update_typical_h(pending_val)
